@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
+import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
@@ -49,7 +50,7 @@ class _LoaderScreenState extends State<LoaderScreen>
     _sparkle = AnimationController(vsync: this, duration: const Duration(milliseconds:  2200))..repeat();
     _fade    = AnimationController(vsync: this, duration: const Duration(milliseconds:   450));
 
-    _navTimer = Timer(const Duration(milliseconds: 2800), _exit);
+    _navTimer = Timer(const Duration(milliseconds: 4500), _exit);
   }
 
   void _exit() {
@@ -239,7 +240,7 @@ class _LoaderScreenState extends State<LoaderScreen>
             colors: [_kPurpleDk, _kPurple, _kPurpleLt],
           ).createShader(r),
           child: Text(
-            'DanceWithMe',
+            'app.name'.tr(),
             style: GoogleFonts.outfit(
               fontSize: 28,
               fontWeight: FontWeight.w700,
@@ -250,7 +251,7 @@ class _LoaderScreenState extends State<LoaderScreen>
         ),
         const SizedBox(height: 12),
         Text(
-          'Getting the rhythm ready...',
+          'loader.message'.tr(),
           style: GoogleFonts.outfit(fontSize: 14, color: _kGray),
         ),
       ],

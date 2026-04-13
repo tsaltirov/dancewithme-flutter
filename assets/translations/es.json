@@ -1,0 +1,25 @@
+{
+  "app": {
+    "name": "DanceWithMe",
+    "tagline": "Siente el ritmo, vive la danza"
+  },
+  "loader": {
+    "message": "Preparando el ritmo..."
+  },
+  "auth": {
+    "emailAddress": "Correo electrónico",
+    "emailPlaceholder": "tu@email.com",
+    "password": "Contraseña",
+    "forgotPassword": "¿Olvidaste tu contraseña?",
+    "signIn": "Iniciar sesión",
+    "forgotTitle": "¿Olvidaste tu contraseña?",
+    "forgotDesc": "¡No te preocupes! Introduce el correo electrónico de tu cuenta y te enviaremos un enlace para restablecer tu contraseña.",
+    "emailLabel": "Correo electrónico",
+    "sendResetLink": "Enviar enlace de restablecimiento",
+    "helpNote": "Revisa tu bandeja de entrada y la carpeta de spam. El enlace expirará en 15 minutos.",
+    "rememberPassword": "¿Recuerdas tu contraseña?",
+    "back": "Volver",
+    "validationEmail": "Por favor introduce tu correo",
+    "validationPassword": "Por favor introduce tu contraseña"
+  }
+}

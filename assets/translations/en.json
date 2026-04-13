@@ -1,0 +1,25 @@
+{
+  "app": {
+    "name": "DanceWithMe",
+    "tagline": "Feel the rhythm, live the dance"
+  },
+  "loader": {
+    "message": "Getting the rhythm ready..."
+  },
+  "auth": {
+    "emailAddress": "Email address",
+    "emailPlaceholder": "you@example.com",
+    "password": "Password",
+    "forgotPassword": "Forgot password?",
+    "signIn": "Sign In",
+    "forgotTitle": "Forgot Password?",
+    "forgotDesc": "No worries! Enter the email address associated with your account and we'll send you a link to reset your password.",
+    "emailLabel": "Email address",
+    "sendResetLink": "Send Reset Link",
+    "helpNote": "Check your inbox and spam folder for the reset link. The link will expire in 15 minutes.",
+    "rememberPassword": "Remember your password?",
+    "back": "Back",
+    "validationEmail": "Please enter your email",
+    "validationPassword": "Please enter your password"
+  }
+}
