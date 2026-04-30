@@ -2,6 +2,8 @@ import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import '../services/auth_service.dart';
+import '../utils/validators.dart';
 import 'forgot_password_screen.dart';
 import 'home_screen.dart';
 
@@ -53,17 +55,54 @@ class _LoginScreenState extends State<LoginScreen> {
     FocusScope.of(context).unfocus();
     if (!_formKey.currentState!.validate()) return;
     setState(() => _isLoading = true);
-    await Future.delayed(const Duration(milliseconds: 1200)); // TODO: replace with auth API
-    if (!mounted) return;
-    setState(() => _isLoading = false);
-    Navigator.of(context).pushReplacement(
-      PageRouteBuilder(
-        pageBuilder: (_, __, ___) => const HomeScreen(),
-        transitionsBuilder: (_, a, __, child) =>
-            FadeTransition(opacity: a, child: child),
-        transitionDuration: const Duration(milliseconds: 400),
-      ),
-    );
+    try {
+      await AuthService.login(_emailCtrl.text, _passCtrl.text);
+      if (!mounted) return;
+      Navigator.of(context).pushReplacement(
+        PageRouteBuilder(
+          pageBuilder: (_, __, ___) => const HomeScreen(),
+          transitionsBuilder: (_, a, __, child) =>
+              FadeTransition(opacity: a, child: child),
+          transitionDuration: const Duration(milliseconds: 400),
+        ),
+      );
+    } on AuthException catch (e) {
+      if (!mounted) return;
+      _showError(e.trKey);
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  void _showError(String trKey) {
+    ScaffoldMessenger.of(context)
+      ..clearSnackBars()
+      ..showSnackBar(
+        SnackBar(
+          content: Row(
+            children: [
+              const Icon(Icons.error_outline_rounded,
+                  color: Colors.white, size: 18),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  trKey.tr(),
+                  style: GoogleFonts.outfit(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w500,
+                      color: Colors.white),
+                ),
+              ),
+            ],
+          ),
+          backgroundColor: const Color(0xFFEF4444),
+          behavior: SnackBarBehavior.floating,
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          margin: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+          duration: const Duration(seconds: 4),
+        ),
+      );
   }
 
   // ─── Build ────────────────────────────────────────────────────
@@ -299,8 +338,7 @@ class _LoginScreenState extends State<LoginScreen> {
       textInputAction: TextInputAction.next,
       onFieldSubmitted: (_) => _passFocus.requestFocus(),
       style: GoogleFonts.outfit(fontSize: 15, color: _kDark),
-      validator: (v) =>
-          (v == null || v.trim().isEmpty) ? 'auth.validationEmail'.tr() : null,
+      validator: (v) => AppValidators.email(v)?.tr(),
       decoration: _fieldDecoration(
         hint: 'auth.emailAddress'.tr(),
         prefixIcon: Icons.mail_outline_rounded,
@@ -317,8 +355,7 @@ class _LoginScreenState extends State<LoginScreen> {
       textInputAction: TextInputAction.done,
       onFieldSubmitted: (_) => _signIn(),
       style: GoogleFonts.outfit(fontSize: 15, color: _kDark),
-      validator: (v) =>
-          (v == null || v.isEmpty) ? 'auth.validationPassword'.tr() : null,
+      validator: (v) => AppValidators.password(v)?.tr(),
       decoration: _fieldDecoration(
         hint: 'auth.password'.tr(),
         prefixIcon: Icons.lock_outline_rounded,

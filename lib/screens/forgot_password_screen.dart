@@ -2,6 +2,9 @@ import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import '../services/auth_service.dart';
+import 'otp_reset_screen.dart';
+
 // ─── Palette (shared with login) ──────────────────────────────
 const Color _kPurple  = Color(0xFF7C5CFC);
 const Color _kPurpleLt = Color(0xFF9B7EFD);
@@ -35,9 +38,42 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
   Future<void> _sendResetLink() async {
     if (!_formKey.currentState!.validate()) return;
     setState(() => _isLoading = true);
-    await Future.delayed(const Duration(milliseconds: 1200)); // TODO: API
-    if (!mounted) return;
-    setState(() { _isLoading = false; _sent = true; });
+    try {
+      await AuthService.requestPasswordCode(_emailCtrl.text);
+      if (!mounted) return;
+      setState(() => _sent = true);
+      // Brief success pulse, then navigate to OTP screen
+      await Future.delayed(const Duration(milliseconds: 700));
+      if (!mounted) return;
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => OtpResetScreen(
+            email: _emailCtrl.text.trim().toLowerCase(),
+          ),
+        ),
+      );
+      setState(() => _sent = false);
+    } on AuthException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+        ..clearSnackBars()
+        ..showSnackBar(SnackBar(
+          content: Row(children: [
+            const Icon(Icons.error_outline_rounded, color: Colors.white, size: 18),
+            const SizedBox(width: 10),
+            Expanded(child: Text(e.trKey.tr(),
+                style: GoogleFonts.outfit(fontSize: 14, color: Colors.white))),
+          ]),
+          backgroundColor: const Color(0xFFEF4444),
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          margin: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+          duration: const Duration(seconds: 4),
+        ));
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
   }
 
   @override
@@ -356,7 +392,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                             color: Color(0xFF4CAF50), size: 20),
                         const SizedBox(width: 8),
                         Text(
-                          'Link sent!',
+                          'auth.codeSent'.tr(),
                           style: GoogleFonts.outfit(
                             fontSize: 16,
                             fontWeight: FontWeight.w600,
@@ -366,7 +402,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                       ],
                     )
                   : Text(
-                      'auth.sendResetLink'.tr(),
+                      'auth.sendCode'.tr(),
                       style: GoogleFonts.outfit(
                         fontSize: 16,
                         fontWeight: FontWeight.w600,
