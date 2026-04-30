@@ -1,0 +1,265 @@
+import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
+
+import 'package:flutter/foundation.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:http/http.dart' as http;
+
+// ─── Storage keys ─────────────────────────────────────────────────────────────
+const _kAccessToken   = 'auth_access_token';
+const _kRefreshToken  = 'auth_refresh_token';
+const _kUserId        = 'auth_user_id';
+const _kUserName      = 'auth_user_name';
+const _kUserLastName  = 'auth_user_last_name';
+const _kUserEmail     = 'auth_user_email';
+const _kUserRole      = 'auth_user_role';
+
+// ─── Typed error ──────────────────────────────────────────────────────────────
+class AuthException implements Exception {
+  final String trKey;
+  const AuthException(this.trKey);
+}
+
+// ─── User model ───────────────────────────────────────────────────────────────
+class AuthUser {
+  final String id;
+  final String name;
+  final String lastName;
+  final String email;
+  final String role;
+
+  const AuthUser({
+    required this.id,
+    required this.name,
+    required this.lastName,
+    required this.email,
+    required this.role,
+  });
+
+  String get fullName => '$name $lastName'.trim();
+
+  factory AuthUser.fromJson(Map<String, dynamic> j) => AuthUser(
+        id:       j['id']       as String? ?? '',
+        name:     j['name']     as String? ?? '',
+        lastName: j['lastName'] as String? ?? '',
+        email:    j['email']    as String? ?? '',
+        role:     j['role']     as String? ?? '',
+      );
+}
+
+// ─── AuthService ──────────────────────────────────────────────────────────────
+class AuthService {
+  AuthService._();
+
+  static const _storage = FlutterSecureStorage();
+
+  static String get _baseUrl {
+    final raw = dotenv.env['BACKEND_URL'] ?? '';
+    if (raw.isEmpty) throw const AuthException('auth.errorConfig');
+    return raw.startsWith('http') ? raw : 'http://$raw';
+  }
+
+  // ── POST /api/v1/auth/login ───────────────────────────────────────────────
+  // Expected 200 body:
+  // { "success": true, "data": { "accessToken": "...", "refreshToken": "...",
+  //   "user": { "id", "name", "lastName", "email", "role", ... } } }
+  static Future<AuthUser> login(String email, String password) async {
+    final http.Response res;
+
+    try {
+      res = await http
+          .post(
+            Uri.parse('$_baseUrl/api/v1/auth/login'),
+            headers: {'Content-Type': 'application/json; charset=UTF-8'},
+            body: jsonEncode({
+              'email': email.trim().toLowerCase(),
+              'password': password,
+            }),
+          )
+          .timeout(const Duration(seconds: 15));
+    } on TimeoutException {
+      throw const AuthException('auth.errorTimeout');
+    } on SocketException {
+      throw const AuthException('auth.errorNoConnection');
+    }
+
+    switch (res.statusCode) {
+      case 200:
+        final body = jsonDecode(res.body) as Map<String, dynamic>;
+        final data  = body['data']  as Map<String, dynamic>?;
+        final token = data?['accessToken']  as String?;
+        final refresh = data?['refreshToken'] as String?;
+        final userJson = data?['user'] as Map<String, dynamic>?;
+
+        if (data == null || token == null || token.isEmpty) {
+          throw const AuthException('auth.errorServer');
+        }
+
+        final user = AuthUser.fromJson(userJson ?? {});
+
+        await Future.wait([
+          _storage.write(key: _kAccessToken,  value: token),
+          if (refresh != null)
+            _storage.write(key: _kRefreshToken, value: refresh),
+          _storage.write(key: _kUserId,       value: user.id),
+          _storage.write(key: _kUserName,     value: user.name),
+          _storage.write(key: _kUserLastName, value: user.lastName),
+          _storage.write(key: _kUserEmail,    value: user.email),
+          _storage.write(key: _kUserRole,     value: user.role),
+        ]);
+
+        return user;
+
+      case 401:
+      case 403:
+        throw const AuthException('auth.errorInvalidCredentials');
+
+      case >= 500:
+        throw const AuthException('auth.errorServer');
+
+      default:
+        throw const AuthException('auth.errorServer');
+    }
+  }
+
+  // ── Safe storage read — returns null instead of throwing on web crypto errors
+  static Future<String?> _safeRead(String key) async {
+    try {
+      return await _storage.read(key: key);
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('[AuthService] storage read "$key" failed: $e');
+        debugPrint('[AuthService] Clear browser data (IndexedDB + localStorage) and re-login.');
+      }
+      return null;
+    }
+  }
+
+  // ── Extract user-id from JWT payload (no crypto needed — just base64) ─────
+  // Fallback when FlutterSecureStorage read fails due to Web Crypto mismatch.
+  static String? _idFromJwt(String token) {
+    try {
+      final parts = token.split('.');
+      if (parts.length < 2) return null;
+      // base64url → properly padded base64
+      final padded = base64Url.normalize(parts[1]);
+      final payload =
+          jsonDecode(utf8.decode(base64Url.decode(padded))) as Map<String, dynamic>;
+      // Try common claim names: sub, id, userId, uid
+      return (payload['sub'] ?? payload['id'] ?? payload['userId'] ?? payload['uid'])
+          ?.toString();
+    } catch (_) {
+      return null;
+    }
+  }
+
+  // ── Accessors ─────────────────────────────────────────────────────────────
+  static Future<String?> getAccessToken()  => _safeRead(_kAccessToken);
+  static Future<String?> getRefreshToken() => _safeRead(_kRefreshToken);
+  static Future<bool>    isLoggedIn() async => (await getAccessToken()) != null;
+
+  static Future<AuthUser?> getUser() async {
+    var id = await _safeRead(_kUserId);
+
+    // Fallback: decode JWT when storage read failed
+    if (id == null) {
+      final token = await _safeRead(_kAccessToken);
+      if (token != null) {
+        id = _idFromJwt(token);
+        if (kDebugMode && id != null) {
+          debugPrint('[AuthService] userId resolved from JWT: $id');
+        }
+      }
+    }
+    if (id == null) return null;
+
+    return AuthUser(
+      id:       id,
+      name:     await _safeRead(_kUserName)     ?? '',
+      lastName: await _safeRead(_kUserLastName) ?? '',
+      email:    await _safeRead(_kUserEmail)    ?? '',
+      role:     await _safeRead(_kUserRole)     ?? '',
+    );
+  }
+
+  // ── POST /api/v1/auth/forgot-password — no Bearer required ──────────────
+  // Sends a verification code to the given email.
+  // Returns normally on 200/201; throws AuthException on failure.
+  static Future<void> requestPasswordCode(String email) async {
+    final http.Response res;
+    try {
+      res = await http
+          .post(
+            Uri.parse('$_baseUrl/api/v1/auth/forgot-password'),
+            headers: {'Content-Type': 'application/json; charset=UTF-8'},
+            body: jsonEncode({'email': email.trim().toLowerCase()}),
+          )
+          .timeout(const Duration(seconds: 15));
+    } on TimeoutException {
+      throw const AuthException('auth.errorTimeout');
+    } on SocketException {
+      throw const AuthException('auth.errorNoConnection');
+    }
+
+    // 200 / 201 → success.
+    // Many backends return 200 even for unknown emails (security — no user enumeration).
+    // Only treat 5xx (and unexpected 4xx) as errors.
+    if (res.statusCode >= 500) {
+      throw const AuthException('auth.errorServer');
+    }
+    if (res.statusCode == 400) {
+      throw const AuthException('auth.validationEmailFormat');
+    }
+  }
+
+  // ── POST /api/v1/auth/reset-password — no Bearer required ───────────────
+  // Body: { email, code, newPassword }
+  static Future<void> resetPassword({
+    required String email,
+    required String code,
+    required String newPassword,
+  }) async {
+    final http.Response res;
+    try {
+      res = await http
+          .post(
+            Uri.parse('$_baseUrl/api/v1/auth/reset-password'),
+            headers: {'Content-Type': 'application/json; charset=UTF-8'},
+            body: jsonEncode({
+              'email':       email.trim().toLowerCase(),
+              'code':        code.trim(),
+              'newPassword': newPassword,
+            }),
+          )
+          .timeout(const Duration(seconds: 15));
+    } on TimeoutException {
+      throw const AuthException('auth.errorTimeout');
+    } on SocketException {
+      throw const AuthException('auth.errorNoConnection');
+    }
+
+    if (res.statusCode == 200 || res.statusCode == 201) return;
+
+    if (res.statusCode == 400 ||
+        res.statusCode == 404 ||
+        res.statusCode == 422) {
+      throw const AuthException('auth.errorInvalidCode');
+    }
+    throw const AuthException('auth.errorServer');
+  }
+
+  // ── Logout — wipes all stored credentials ─────────────────────────────────
+  static Future<void> logout() async {
+    await Future.wait([
+      _storage.delete(key: _kAccessToken),
+      _storage.delete(key: _kRefreshToken),
+      _storage.delete(key: _kUserId),
+      _storage.delete(key: _kUserName),
+      _storage.delete(key: _kUserLastName),
+      _storage.delete(key: _kUserEmail),
+      _storage.delete(key: _kUserRole),
+    ]);
+  }
+}

@@ -6,6 +6,9 @@ import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import '../services/auth_service.dart';
+import 'home_screen.dart';
+
 // ─── Palette (from loader.pen) ────────────────────────────────
 const Color _kPurple   = Color(0xFF7C5CFC);
 const Color _kPurpleDk = Color(0xFF5A3ED9);
@@ -55,10 +58,13 @@ class _LoaderScreenState extends State<LoaderScreen>
 
   void _exit() {
     if (!mounted) return;
-    _fade.forward().then((_) {
+    _fade.forward().then((_) async {
       if (!mounted) return;
+      final loggedIn = await AuthService.isLoggedIn();
+      if (!mounted) return;
+      final destination = loggedIn ? const HomeScreen() : widget.nextScreen;
       Navigator.of(context).pushReplacement(PageRouteBuilder(
-        pageBuilder: (_, __, ___) => widget.nextScreen,
+        pageBuilder: (_, __, ___) => destination,
         transitionsBuilder: (_, a, __, child) =>
             FadeTransition(opacity: a, child: child),
         transitionDuration: const Duration(milliseconds: 400),
