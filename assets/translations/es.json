@@ -78,7 +78,24 @@
     "validName": "El nombre es obligatorio",
     "validAddress": "La dirección es obligatoria",
     "validPhone": "El teléfono es obligatorio",
-    "validEmail": "Introduce un email válido"
+    "validEmail": "Introduce un email válido",
+    "tabStudents": "Alumnos",
+    "tabEvents": "Eventos",
+    "tabAlerts": "Alertas",
+    "filterAll": "Todos",
+    "filterPaid": "Pagados",
+    "filterUnpaid": "Sin Pagar",
+    "searchHint": "Buscar por nombre o correo…",
+    "addStudent": "Añadir Alumno",
+    "badgePaid": "Pagado",
+    "badgeUnpaid": "Sin Pagar",
+    "noStudents": "Aún no hay alumnos",
+    "noStudentsDesc": "Añade el primer alumno con el botón de arriba",
+    "upcomingEvents": "Próximos Eventos",
+    "viewDetails": "Ver Detalles",
+    "tabWardrobe": "Vestuario",
+    "tabGroups": "Grupos",
+    "tabChoreo": "Coreografías"
   },
   "dialog": {
     "logout": {

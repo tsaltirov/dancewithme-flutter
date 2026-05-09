@@ -78,7 +78,24 @@
     "validName": "Името е задължително",
     "validAddress": "Адресът е задължителен",
     "validPhone": "Телефонът е задължителен",
-    "validEmail": "Въведете валиден имейл"
+    "validEmail": "Въведете валиден имейл",
+    "tabStudents": "Ученици",
+    "tabEvents": "Събития",
+    "tabAlerts": "Сигнали",
+    "filterAll": "Всички",
+    "filterPaid": "Платили",
+    "filterUnpaid": "Неплатили",
+    "searchHint": "Търси по име или имейл…",
+    "addStudent": "Добави ученик",
+    "badgePaid": "Платено",
+    "badgeUnpaid": "Неплатено",
+    "noStudents": "Все още няма ученици",
+    "noStudentsDesc": "Добавете първия ученик с бутона по-горе",
+    "upcomingEvents": "Предстоящи събития",
+    "viewDetails": "Виж детайли",
+    "tabWardrobe": "Облекло",
+    "tabGroups": "Групи",
+    "tabChoreo": "Хореографии"
   },
   "dialog": {
     "logout": {

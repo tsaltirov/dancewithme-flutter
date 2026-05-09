@@ -4,6 +4,7 @@ import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:animations/animations.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../services/auth_service.dart';
@@ -11,6 +12,7 @@ import '../services/school_service.dart';
 import '../widgets/add_school_dialog.dart';
 import '../widgets/logout_dialog.dart';
 import 'login_screen.dart';
+import 'school_screen.dart';
 
 // ─── Design tokens ────────────────────────────────────────────────────────────
 class _T {
@@ -223,7 +225,10 @@ class _HomeScreenState extends State<HomeScreen>
   void _switchTab(int i) {
     if (i == _tab) return;
     setState(() => _tab = i);
-    _fade..reset()..forward();
+  }
+
+  Future<void> _onRefresh() async {
+    if (_user != null) await _reloadSchools(_user!.id);
   }
 
   Future<void> _showAddSchool() async {
@@ -298,21 +303,37 @@ class _HomeScreenState extends State<HomeScreen>
                     child: FadeTransition(
                       opacity: CurvedAnimation(
                           parent: _fade, curve: Curves.easeOut),
-                      child: _tab == 0
-                          ? (layout == _Layout.tablet
-                              ? _TabletBody(
-                                  safeBottom: safeBottom,
-                                  user:       _user,
-                                  schools:    _schools,
-                                  loading:    _loadingSchools,
-                                  onLogout:   _logout)
-                              : _HomeBody(
-                                  safeBottom: safeBottom,
-                                  user:       _user,
-                                  schools:    _schools,
-                                  loading:    _loadingSchools,
-                                  onLogout:   _logout))
-                          : _PlaceholderTab(index: _tab),
+                      child: PageTransitionSwitcher(
+                        duration: const Duration(milliseconds: 280),
+                        transitionBuilder: (child, animation, secondary) =>
+                            SharedAxisTransition(
+                              animation: animation,
+                              secondaryAnimation: secondary,
+                              transitionType: SharedAxisTransitionType.horizontal,
+                              fillColor: Colors.transparent,
+                              child: child,
+                            ),
+                        child: KeyedSubtree(
+                          key: ValueKey(_tab),
+                          child: _tab == 0
+                              ? (layout == _Layout.tablet
+                                  ? _TabletBody(
+                                      safeBottom: safeBottom,
+                                      user:       _user,
+                                      schools:    _schools,
+                                      loading:    _loadingSchools,
+                                      onLogout:   _logout,
+                                      onRefresh:  _onRefresh)
+                                  : _HomeBody(
+                                      safeBottom: safeBottom,
+                                      user:       _user,
+                                      schools:    _schools,
+                                      loading:    _loadingSchools,
+                                      onLogout:   _logout,
+                                      onRefresh:  _onRefresh))
+                              : _PlaceholderTab(index: _tab),
+                        ),
+                      ),
                     ),
                   ),
                 ),
@@ -496,20 +517,16 @@ class _StatCard extends StatelessWidget {
 
 // ─── School image card (tablet top card + web grid) ───────────────────────────
 class _SchoolImageCard extends StatelessWidget {
-  final School       school;
-  final int          index;
-  final VoidCallback onEnter;
+  final School school;
+  final int    index;
 
-  const _SchoolImageCard({
-    required this.school,
-    required this.index,
-    required this.onEnter,
-  });
+  const _SchoolImageCard({required this.school, required this.index});
 
   @override
   Widget build(BuildContext context) {
     final grads = _gradForIdx(index);
     return Container(
+      constraints: const BoxConstraints(minHeight: 210),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(20),
         boxShadow: [
@@ -517,22 +534,28 @@ class _SchoolImageCard extends StatelessWidget {
               offset: const Offset(0, 8), blurRadius: 24),
         ],
       ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(20),
-        child: Stack(children: [
+      child: OpenContainer<void>(
+        transitionDuration: const Duration(milliseconds: 450),
+        transitionType: ContainerTransitionType.fadeThrough,
+        openBuilder: (_, __) => SchoolScreen(school: school),
+        openColor: _T.bg,
+        closedShape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        closedColor: grads[0],
+        closedElevation: 0,
+        closedBuilder: (_, openContainer) => Stack(children: [
           // Background: network image or gradient
           Positioned.fill(
             child: school.hasImage
                 ? Image.network(school.imageUrl, fit: BoxFit.cover,
                     errorBuilder: (_, __, ___) => Container(
-                      decoration: BoxDecoration(gradient: LinearGradient(
-                          begin: Alignment.topLeft, end: Alignment.bottomRight,
-                          colors: grads))))
+                        decoration: BoxDecoration(gradient: LinearGradient(
+                            begin: Alignment.topLeft, end: Alignment.bottomRight,
+                            colors: grads))))
                 : Container(decoration: BoxDecoration(gradient: LinearGradient(
                     begin: Alignment.topLeft, end: Alignment.bottomRight,
                     colors: grads))),
           ),
-          // Dark overlay for image legibility
+          // Dark overlay for legibility
           if (school.hasImage)
             Positioned.fill(
               child: Container(
@@ -551,80 +574,27 @@ class _SchoolImageCard extends StatelessWidget {
                 Text(school.name,
                     style: _pjs(17, FontWeight.w700, Colors.white, ls: -0.2),
                     maxLines: 2, overflow: TextOverflow.ellipsis),
+                if (school.address.isNotEmpty) ...[
+                  const SizedBox(height: 5),
+                  Row(children: [
+                    Icon(Icons.location_on_rounded, size: 12,
+                        color: Colors.white.withValues(alpha: 0.75)),
+                    const SizedBox(width: 4),
+                    Flexible(
+                      child: Text(school.address,
+                          style: _pjs(12, FontWeight.w400,
+                              Colors.white.withValues(alpha: 0.75)),
+                          maxLines: 1, overflow: TextOverflow.ellipsis),
+                    ),
+                  ]),
+                ],
                 const SizedBox(height: 14),
-                _enterButton(onTap: onEnter),
+                _enterButton(onTap: openContainer),
               ],
             ),
           ),
         ]),
       ),
-    );
-  }
-}
-
-// ─── School list card (tablet list rows) ─────────────────────────────────────
-class _SchoolListCard extends StatelessWidget {
-  final School       school;
-  final int          index;
-  final VoidCallback onEnter;
-
-  const _SchoolListCard({
-    required this.school,
-    required this.index,
-    required this.onEnter,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final grads = _gradForIdx(index);
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: _T.surface,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: const Color(0xFFF0EDE8)),
-        boxShadow: const [
-          BoxShadow(color: Color(0x101A1918), offset: Offset(0, 2), blurRadius: 12),
-        ],
-      ),
-      child: Row(children: [
-        // Thumbnail: network image or gradient fallback
-        ClipRRect(
-          borderRadius: BorderRadius.circular(12),
-          child: SizedBox(
-            width: 62, height: 62,
-            child: school.hasImage
-                ? Image.network(school.imageUrl, fit: BoxFit.cover,
-                    errorBuilder: (_, __, ___) => Container(
-                      decoration: BoxDecoration(gradient: LinearGradient(
-                          begin: Alignment.topLeft, end: Alignment.bottomRight,
-                          colors: grads))))
-                : Container(
-                    alignment: Alignment.center,
-                    decoration: BoxDecoration(gradient: LinearGradient(
-                        begin: Alignment.topLeft, end: Alignment.bottomRight,
-                        colors: grads)),
-                    child: Text((index + 1).toString().padLeft(2, '0'),
-                        style: _pjs(18, FontWeight.w800,
-                            Colors.white.withValues(alpha: 0.9))),
-                  ),
-          ),
-        ),
-        const SizedBox(width: 14),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(school.name,
-                  style: _pjs(15, FontWeight.w600, _T.ink),
-                  maxLines: 1, overflow: TextOverflow.ellipsis),
-              const SizedBox(height: 10),
-              _enterButton(onTap: onEnter),
-            ],
-          ),
-        ),
-      ]),
     );
   }
 }
@@ -717,33 +687,39 @@ class _HomeBody extends StatelessWidget {
   final List<School> schools;
   final bool        loading;
   final VoidCallback onLogout;
+  final Future<void> Function() onRefresh;
   const _HomeBody({
     required this.safeBottom,
     required this.user,
     required this.schools,
     required this.loading,
     required this.onLogout,
+    required this.onRefresh,
   });
 
   @override
   Widget build(BuildContext context) {
     final bottomPad = _T.tabBarH + safeBottom + 28;
-    return SingleChildScrollView(
-      physics: const BouncingScrollPhysics(),
-      child: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: _T.maxW),
-          child: Padding(
-            padding: EdgeInsets.fromLTRB(22, 6, 22, bottomPad),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                _MobileHeader(user: user, onLogout: onLogout),
-                const SizedBox(height: 28),
-                _SchoolsCountCard(count: schools.length),
-                const SizedBox(height: 32),
-                _MobileSchoolsSection(schools: schools, loading: loading),
-              ],
+    return RefreshIndicator(
+      onRefresh: onRefresh,
+      color: _T.purple,
+      child: SingleChildScrollView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: _T.maxW),
+            child: Padding(
+              padding: EdgeInsets.fromLTRB(22, 6, 22, bottomPad),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  _MobileHeader(user: user, onLogout: onLogout),
+                  const SizedBox(height: 28),
+                  _SchoolsCountCard(count: schools.length),
+                  const SizedBox(height: 32),
+                  _MobileSchoolsSection(schools: schools, loading: loading),
+                ],
+              ),
             ),
           ),
         ),
@@ -883,8 +859,7 @@ class _MobileSchoolsSection extends StatelessWidget {
           LayoutBuilder(builder: (ctx, bc) {
             final twoCol = bc.maxWidth > 480;
             final cards = schools.asMap().entries
-                .map((e) => _MobileSchoolCard(
-                    school: e.value, index: e.key, onEnter: () {}))
+                .map((e) => _MobileSchoolCard(school: e.value, index: e.key))
                 .toList();
             if (twoCol && cards.length >= 2) {
               return Column(children: [
@@ -916,34 +891,36 @@ class _MobileSchoolsSection extends StatelessWidget {
 }
 
 class _MobileSchoolCard extends StatelessWidget {
-  final School       school;
-  final int          index;
-  final VoidCallback onEnter;
+  final School school;
+  final int    index;
 
-  const _MobileSchoolCard({
-    required this.school,
-    required this.index,
-    required this.onEnter,
-  });
+  const _MobileSchoolCard({required this.school, required this.index});
 
   @override
   Widget build(BuildContext context) {
     final grads  = _gradForIdx(index);
     final numStr = (index + 1).toString().padLeft(2, '0');
 
-    return _tap(
-      Container(
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(24),
-          boxShadow: [
-            BoxShadow(
-              color: grads[0].withValues(alpha: 0.32),
-              offset: const Offset(0, 8), blurRadius: 24,
-            ),
-          ],
-        ),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(24),
+    return Container(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(24),
+        boxShadow: [
+          BoxShadow(
+            color: grads[0].withValues(alpha: 0.32),
+            offset: const Offset(0, 8), blurRadius: 24,
+          ),
+        ],
+      ),
+      child: OpenContainer<void>(
+        transitionDuration: const Duration(milliseconds: 450),
+        transitionType: ContainerTransitionType.fadeThrough,
+        openBuilder: (_, __) => SchoolScreen(school: school),
+        openColor: _T.bg,
+        closedShape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        closedColor: grads[0],
+        closedElevation: 0,
+        closedBuilder: (_, openContainer) => ConstrainedBox(
+          constraints: const BoxConstraints(minHeight: 200),
           child: Stack(children: [
             // Background: image or gradient
             Positioned.fill(
@@ -957,7 +934,7 @@ class _MobileSchoolCard extends StatelessWidget {
                       begin: Alignment.topLeft,
                       end: Alignment.bottomRight, colors: grads))),
             ),
-            // Dark overlay for image
+            // Dark overlay for image readability
             if (school.hasImage)
               Positioned.fill(
                 child: Container(
@@ -965,7 +942,7 @@ class _MobileSchoolCard extends StatelessWidget {
                     begin: Alignment.bottomCenter, end: Alignment.topCenter,
                     colors: [
                       Colors.black.withValues(alpha: 0.65),
-                      Colors.black.withValues(alpha: 0.1),
+                      Colors.black.withValues(alpha: 0.05),
                     ],
                   )),
                 ),
@@ -988,21 +965,34 @@ class _MobileSchoolCard extends StatelessWidget {
                         style: _pjs(12, FontWeight.w700,
                             Colors.white.withValues(alpha: 0.85), ls: 1.0)),
                   ),
-                  const SizedBox(height: 14),
+                  const SizedBox(height: 12),
                   Text(school.name,
                       style: GoogleFonts.plusJakartaSans(
                           fontSize: 20, fontWeight: FontWeight.w800,
                           height: 1.15, letterSpacing: -0.5, color: Colors.white),
                       maxLines: 2, overflow: TextOverflow.ellipsis),
-                  const SizedBox(height: 18),
-                  _enterButton(onTap: onEnter),
+                  if (school.address.isNotEmpty) ...[
+                    const SizedBox(height: 6),
+                    Row(children: [
+                      Icon(Icons.location_on_rounded, size: 12,
+                          color: Colors.white.withValues(alpha: 0.75)),
+                      const SizedBox(width: 4),
+                      Flexible(
+                        child: Text(school.address,
+                            style: _pjs(12, FontWeight.w400,
+                                Colors.white.withValues(alpha: 0.75)),
+                            maxLines: 1, overflow: TextOverflow.ellipsis),
+                      ),
+                    ]),
+                  ],
+                  const SizedBox(height: 16),
+                  _enterButton(onTap: openContainer),
                 ],
               ),
             ),
           ]),
         ),
       ),
-      onTap: onEnter,
     );
   }
 }
@@ -1017,19 +1007,24 @@ class _TabletBody extends StatelessWidget {
   final List<School> schools;
   final bool         loading;
   final VoidCallback onLogout;
+  final Future<void> Function() onRefresh;
   const _TabletBody({
     required this.safeBottom,
     required this.user,
     required this.schools,
     required this.loading,
     required this.onLogout,
+    required this.onRefresh,
   });
 
   @override
   Widget build(BuildContext context) {
     final bottomPad = _T.tabBarH + safeBottom + 28;
-    return SingleChildScrollView(
-      physics: const BouncingScrollPhysics(),
+    return RefreshIndicator(
+      onRefresh: onRefresh,
+      color: _T.purple,
+      child: SingleChildScrollView(
+      physics: const AlwaysScrollableScrollPhysics(),
       child: Padding(
         padding: EdgeInsets.fromLTRB(28, 0, 28, bottomPad),
         child: Column(
@@ -1051,33 +1046,21 @@ class _TabletBody extends StatelessWidget {
             else if (schools.isEmpty)
               _SchoolsEmptyState()
             else
-              Column(children: [
-                _SchoolImageCard(school: schools[0], index: 0, onEnter: () {}),
-                if (schools.length > 1) ...[
-                  const SizedBox(height: 12),
-                  IntrinsicHeight(child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Expanded(child: _SchoolListCard(
-                          school: schools[1], index: 1, onEnter: () {})),
-                      if (schools.length > 2) ...[
-                        const SizedBox(width: 12),
-                        Expanded(child: _SchoolListCard(
-                            school: schools[2], index: 2, onEnter: () {})),
-                      ],
-                    ],
-                  )),
-                ],
-                if (schools.length > 3)
-                  ...schools.skip(3).toList().asMap().entries.map((e) =>
-                    Padding(
-                      padding: const EdgeInsets.only(top: 12),
-                      child: _SchoolListCard(
-                          school: e.value, index: e.key + 3, onEnter: () {}),
-                    )),
-              ]),
+              LayoutBuilder(builder: (_, bc) {
+                const spacing = 12.0;
+                final cardW = (bc.maxWidth - spacing) / 2;
+                return Wrap(
+                  spacing: spacing,
+                  runSpacing: spacing,
+                  children: schools.asMap().entries.map((e) => SizedBox(
+                    width: cardW,
+                    child: _SchoolImageCard(school: e.value, index: e.key),
+                  )).toList(),
+                );
+              }),
           ],
         ),
+      ),
       ),
     );
   }
@@ -1170,11 +1153,23 @@ class _WebLayout extends StatelessWidget {
           _WebTopBar(user: user),
           Expanded(
             child: FadeTransition(
-              opacity:
-                  CurvedAnimation(parent: fade, curve: Curves.easeOut),
-              child: tab == 0
-                  ? _WebBody(schools: schools, loading: loading, onAddSchool: onAddSchool)
-                  : _PlaceholderTab(index: tab),
+              opacity: CurvedAnimation(parent: fade, curve: Curves.easeOut),
+              child: PageTransitionSwitcher(
+                duration: const Duration(milliseconds: 260),
+                transitionBuilder: (child, animation, secondary) =>
+                    FadeThroughTransition(
+                      animation: animation,
+                      secondaryAnimation: secondary,
+                      fillColor: Colors.transparent,
+                      child: child,
+                    ),
+                child: KeyedSubtree(
+                  key: ValueKey(tab),
+                  child: tab == 0
+                      ? _WebBody(schools: schools, loading: loading, onAddSchool: onAddSchool)
+                      : _PlaceholderTab(index: tab),
+                ),
+              ),
             ),
           ),
         ]),
@@ -1487,17 +1482,19 @@ class _WebBody extends StatelessWidget {
                   else if (schools.isEmpty)
                     _SchoolsEmptyState()
                   else
-                    IntrinsicHeight(
-                      child: Row(children: [
-                        ...schools.asMap().entries.map((e) => Expanded(
-                          child: Row(children: [
-                            if (e.key > 0) const SizedBox(width: 16),
-                            Expanded(child: _SchoolImageCard(
-                                school: e.value, index: e.key, onEnter: () {})),
-                          ]),
-                        )),
-                      ]),
-                    ),
+                    LayoutBuilder(builder: (_, bc) {
+                      const cols = 3;
+                      const spacing = 16.0;
+                      final cardW = (bc.maxWidth - spacing * (cols - 1)) / cols;
+                      return Wrap(
+                        spacing: spacing,
+                        runSpacing: spacing,
+                        children: schools.asMap().entries.map((e) => SizedBox(
+                          width: cardW,
+                          child: _SchoolImageCard(school: e.value, index: e.key),
+                        )).toList(),
+                      );
+                    }),
                 ],
               ),
             ),

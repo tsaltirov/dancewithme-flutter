@@ -78,7 +78,24 @@
     "validName": "Name is required",
     "validAddress": "Address is required",
     "validPhone": "Phone is required",
-    "validEmail": "Enter a valid email"
+    "validEmail": "Enter a valid email",
+    "tabStudents": "Students",
+    "tabEvents": "Events",
+    "tabAlerts": "Alerts",
+    "filterAll": "All",
+    "filterPaid": "Paid",
+    "filterUnpaid": "Unpaid",
+    "searchHint": "Search by name or email…",
+    "addStudent": "Add Student",
+    "badgePaid": "Paid",
+    "badgeUnpaid": "Unpaid",
+    "noStudents": "No students yet",
+    "noStudentsDesc": "Add the first student using the button above",
+    "upcomingEvents": "Upcoming Events",
+    "viewDetails": "View Details",
+    "tabWardrobe": "Wardrobe",
+    "tabGroups": "Groups",
+    "tabChoreo": "Choreographies"
   },
   "dialog": {
     "logout": {
