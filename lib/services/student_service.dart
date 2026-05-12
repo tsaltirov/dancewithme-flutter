@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-
 import 'package:flutter/foundation.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:http/http.dart' as http;
@@ -81,6 +80,60 @@ class StudentService {
     final raw = dotenv.env['BACKEND_URL'] ?? '';
     if (raw.isEmpty) throw const StudentException('App configuration error');
     return raw.startsWith('http') ? raw : 'http://$raw';
+  }
+
+  // ── POST /api/v1/students/import?schoolId={schoolId} ────────────────────
+  // Multipart upload — returns number of imported students (0 if server
+  // doesn't expose a count field).
+  static Future<int> importFromCsv({
+    required int       schoolId,
+    required Uint8List bytes,
+    required String    filename,
+  }) async {
+    final token = await AuthService.getAccessToken();
+    if (token == null) throw const StudentException('No authentication token');
+
+    final uri = Uri.parse('$_baseUrl/api/v1/students/import')
+        .replace(queryParameters: {'schoolId': '$schoolId'});
+
+    final request = http.MultipartRequest('POST', uri)
+      ..headers['Authorization'] = 'Bearer $token'
+      ..files.add(http.MultipartFile.fromBytes(
+        'file',
+        bytes,
+        filename: filename,
+      ));
+
+    final http.StreamedResponse streamedRes;
+    try {
+      streamedRes =
+          await request.send().timeout(const Duration(seconds: 30));
+    } on TimeoutException {
+      throw const StudentException('Request timed out');
+    } on SocketException {
+      throw const StudentException('No internet connection');
+    }
+
+    final res = await http.Response.fromStream(streamedRes);
+
+    if (kDebugMode) {
+      debugPrint(
+          '[StudentService] POST /api/v1/students/import → ${res.statusCode}');
+    }
+
+    if (res.statusCode != 200 && res.statusCode != 201) {
+      throw StudentException('Server error ${res.statusCode}');
+    }
+
+    try {
+      final body = jsonDecode(res.body) as Map<String, dynamic>;
+      final data = body['data'];
+      if (data is List)  return data.length;
+      if (data is Map && data.containsKey('count')) {
+        return (data['count'] as num?)?.toInt() ?? 0;
+      }
+    } catch (_) {}
+    return 0;
   }
 
   // ── GET /api/v1/students/school/{schoolId} ───────────────────────────────
@@ -182,6 +235,84 @@ class StudentService {
 
     final body = jsonDecode(res.body) as Map<String, dynamic>;
     return Student.fromJson(body['data'] as Map<String, dynamic>);
+  }
+
+  // ── PUT /api/v1/students/{id} ────────────────────────────────────────────
+  static Future<Student> updateStudent({
+    required int     id,
+    required String  name,
+    required String  lastName,
+    required String  email,
+    required String  phone,
+    required int     schoolId,
+    String?          birthDate,
+  }) async {
+    final token = await AuthService.getAccessToken();
+    if (token == null) throw const StudentException('No authentication token');
+
+    final http.Response res;
+    try {
+      res = await http
+          .put(
+            Uri.parse('$_baseUrl/api/v1/students/$id'),
+            headers: {
+              'Content-Type': 'application/json; charset=UTF-8',
+              'Authorization': 'Bearer $token',
+            },
+            body: jsonEncode({
+              'name':     name,
+              'lastName': lastName,
+              'email':    email,
+              'phone':    phone,
+              if (birthDate != null) 'birthDate': birthDate,
+              'schoolId': schoolId,
+            }),
+          )
+          .timeout(const Duration(seconds: 15));
+    } on TimeoutException {
+      throw const StudentException('Request timed out');
+    } on SocketException {
+      throw const StudentException('No internet connection');
+    }
+
+    if (kDebugMode) {
+      debugPrint('[StudentService] PUT /api/v1/students/$id → ${res.statusCode}');
+    }
+
+    if (res.statusCode != 200 && res.statusCode != 201) {
+      throw StudentException('Server error ${res.statusCode}');
+    }
+
+    final body = jsonDecode(res.body) as Map<String, dynamic>;
+    return Student.fromJson(body['data'] as Map<String, dynamic>);
+  }
+
+  // ── DELETE /api/v1/students/{id} ─────────────────────────────────────────
+  static Future<void> deleteStudent(int id) async {
+    final token = await AuthService.getAccessToken();
+    if (token == null) throw const StudentException('No authentication token');
+
+    final http.Response res;
+    try {
+      res = await http
+          .delete(
+            Uri.parse('$_baseUrl/api/v1/students/$id'),
+            headers: {'Authorization': 'Bearer $token'},
+          )
+          .timeout(const Duration(seconds: 15));
+    } on TimeoutException {
+      throw const StudentException('Request timed out');
+    } on SocketException {
+      throw const StudentException('No internet connection');
+    }
+
+    if (kDebugMode) {
+      debugPrint('[StudentService] DELETE /api/v1/students/$id → ${res.statusCode}');
+    }
+
+    if (res.statusCode != 200 && res.statusCode != 204) {
+      throw StudentException('Server error ${res.statusCode}');
+    }
   }
 
   // ── Load students + payment status in one call ───────────────────────────

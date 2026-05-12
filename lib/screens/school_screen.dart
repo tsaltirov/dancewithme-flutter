@@ -10,6 +10,7 @@ import '../services/student_service.dart';
 import '../widgets/add_group_dialog.dart';
 import '../widgets/add_student_dialog.dart';
 import '../widgets/edit_group_dialog.dart';
+import '../widgets/edit_student_dialog.dart';
 
 // ─── Design tokens (blue palette — school theme) ─────────────────────────────
 class _S {
@@ -145,54 +146,131 @@ class _SchoolScreenState extends State<SchoolScreen> {
   }
 
 Future<void> _handleAddCsv() async {
-  try {
-    final result = await FilePicker.pickFiles(
-      type: FileType.custom,
-      allowedExtensions: ['csv'],
-    );
+    try {
+      // 1. Pick file — withData: true ensures bytes on all platforms (web + mobile)
+      final result = await FilePicker.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['csv'],
+        allowMultiple: false,
+        withData: true,
+      );
+      if (!mounted || result == null || result.files.isEmpty) return;
 
-    if (!mounted || result == null || result.files.isEmpty) return;
+      final file  = result.files.first;
+      final bytes = file.bytes;
+      if (bytes == null || !mounted) return;
 
-    final file = result.files.first;
-
-    ScaffoldMessenger.of(context)
-      ..clearSnackBars()
-      ..showSnackBar(
-        SnackBar(
-          content: Row(
+      // 2. Show non-dismissible progress dialog
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => AlertDialog(
+          backgroundColor: Colors.white,
+          shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16)),
+          contentPadding: const EdgeInsets.all(28),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
             children: [
-              const Icon(
-                Icons.check_circle_outline_rounded,
-                color: Colors.white,
-                size: 18,
+              Container(
+                width: 56, height: 56,
+                decoration: const BoxDecoration(
+                    color: _S.primaryDim, shape: BoxShape.circle),
+                child: const Icon(Icons.upload_file_rounded,
+                    color: _S.primary, size: 28),
               ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Text(
-                  'Archivo seleccionado: ${file.name}',
-                  style: GoogleFonts.outfit(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w500,
-                    color: Colors.white,
-                  ),
-                ),
+              const SizedBox(height: 14),
+              Text(
+                file.name,
+                textAlign: TextAlign.center,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: _st(13, FontWeight.w600, _S.ink),
               ),
+              const SizedBox(height: 20),
+              const CircularProgressIndicator(
+                  color: _S.primary, strokeWidth: 2.5),
+              const SizedBox(height: 12),
+              Text('Importando alumnos…',
+                  style: _st(13, FontWeight.normal, _S.muted)),
             ],
           ),
-          backgroundColor: const Color(0xFF22C55E),
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
-          margin: const EdgeInsets.fromLTRB(16, 0, 16, 24),
-          duration: const Duration(seconds: 4),
         ),
       );
-  } catch (e) {
-    // Opcional: log para debug
-    debugPrint('FilePicker error: $e');
+
+      // 3. Upload
+      int     count    = 0;
+      String? errorMsg;
+      try {
+        count = await StudentService.importFromCsv(
+          schoolId: widget.school.id,
+          bytes:    bytes,
+          filename: file.name,
+        );
+      } on StudentException catch (e) {
+        errorMsg = e.message;
+      } catch (_) {
+        errorMsg = 'Error inesperado al importar el archivo';
+      }
+
+      if (!mounted) return;
+
+      // 4. Close progress dialog
+      Navigator.of(context).pop();
+      if (!mounted) return;
+
+      // 5. Show result
+      if (errorMsg != null) {
+        ScaffoldMessenger.of(context)
+          ..clearSnackBars()
+          ..showSnackBar(_csvSnackBar(
+            message: errorMsg,
+            isSuccess: false,
+          ));
+      } else {
+        final label = count > 0
+            ? '$count alumno${count == 1 ? '' : 's'} importado${count == 1 ? '' : 's'} correctamente'
+            : 'Alumnos importados correctamente';
+        ScaffoldMessenger.of(context)
+          ..clearSnackBars()
+          ..showSnackBar(_csvSnackBar(message: label, isSuccess: true));
+        _loadData(); // reload student list
+      }
+    } catch (_) {
+      // User cancelled the file picker — no action needed
+    }
   }
-}
+
+  SnackBar _csvSnackBar({required String message, required bool isSuccess}) {
+    return SnackBar(
+      content: Row(children: [
+        Icon(
+          isSuccess
+              ? Icons.check_circle_outline_rounded
+              : Icons.error_outline_rounded,
+          color: Colors.white,
+          size: 18,
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Text(
+            message,
+            style: GoogleFonts.outfit(
+                fontSize: 14,
+                fontWeight: FontWeight.w500,
+                color: Colors.white),
+          ),
+        ),
+      ]),
+      backgroundColor:
+          isSuccess ? const Color(0xFF22C55E) : _S.errorRed,
+      behavior: SnackBarBehavior.floating,
+      shape:
+          RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      margin: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+      duration: const Duration(seconds: 4),
+    );
+  }
 
   List<Student> get _students {
     var list = _allStudents;
@@ -962,17 +1040,126 @@ class _StudentsBody extends StatelessWidget {
           // ── Table rows ────────────────────────────────────────────────────
           ...students.asMap().entries.map((e) => Padding(
                 padding: const EdgeInsets.only(bottom: 6),
-                child: _TableRow(student: e.value, index: e.key),
+                child: _TableRow(student: e.value, index: e.key, onReload: onRetry),
               )),
         ] else
           // ── Mobile cards ──────────────────────────────────────────────────
           ...students.asMap().entries.map((e) => Padding(
                 padding: const EdgeInsets.only(bottom: 10),
-                child: _MobileStudentCard(student: e.value, index: e.key),
+                child: _MobileStudentCard(student: e.value, index: e.key, onReload: onRetry),
               )),
       ],
     );
   }
+}
+
+// ─── Snack helpers ────────────────────────────────────────────────────────────
+SnackBar _successSnack(String msg) => SnackBar(
+      content: Text(msg,
+          style: GoogleFonts.outfit(
+              fontSize: 13, fontWeight: FontWeight.w500, color: Colors.white)),
+      backgroundColor: _S.paidText,
+      behavior: SnackBarBehavior.floating,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+    );
+
+SnackBar _errorSnack(String msg) => SnackBar(
+      content: Text(msg,
+          style: GoogleFonts.outfit(
+              fontSize: 13, fontWeight: FontWeight.w500, color: Colors.white)),
+      backgroundColor: _S.errorRed,
+      behavior: SnackBarBehavior.floating,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+    );
+
+// ─── Delete confirmation dialog ───────────────────────────────────────────────
+Future<bool> _confirmDeleteStudent(BuildContext context, String name) async {
+  final result = await showDialog<bool>(
+    context: context,
+    barrierDismissible: true,
+    builder: (ctx) => AlertDialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      backgroundColor: Colors.white,
+      contentPadding: const EdgeInsets.fromLTRB(24, 24, 24, 0),
+      actionsPadding: const EdgeInsets.fromLTRB(24, 0, 24, 20),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 52, height: 52,
+            decoration: BoxDecoration(
+              color: _S.unpaidBg,
+              borderRadius: BorderRadius.circular(14),
+            ),
+            alignment: Alignment.center,
+            child: const Icon(Icons.person_remove_outlined,
+                color: _S.unpaidText, size: 26),
+          ),
+          const SizedBox(height: 16),
+          Text('¿Eliminar alumno?',
+              style: _st(18, FontWeight.w700, _S.ink),
+              textAlign: TextAlign.center),
+          const SizedBox(height: 10),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              color: _S.unpaidBg,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Row(mainAxisSize: MainAxisSize.min, children: [
+              const Icon(Icons.warning_amber_rounded,
+                  color: _S.unpaidText, size: 16),
+              const SizedBox(width: 8),
+              Flexible(
+                child: Text(name,
+                    style: _st(13, FontWeight.w600, _S.unpaidText),
+                    textAlign: TextAlign.center),
+              ),
+            ]),
+          ),
+          const SizedBox(height: 8),
+          Text('Esta acción no se puede deshacer.',
+              style: _st(13, FontWeight.normal, _S.muted),
+              textAlign: TextAlign.center),
+          const SizedBox(height: 20),
+        ],
+      ),
+      actions: [
+        Row(children: [
+          Expanded(
+            child: OutlinedButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              style: OutlinedButton.styleFrom(
+                side: const BorderSide(color: _S.border),
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12)),
+                padding: const EdgeInsets.symmetric(vertical: 12),
+              ),
+              child: Text('Cancelar',
+                  style: _st(14, FontWeight.w600, _S.muted)),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: ElevatedButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: _S.unpaidText,
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12)),
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                elevation: 0,
+              ),
+              child: Text('Eliminar',
+                  style: _st(14, FontWeight.w600, Colors.white)),
+            ),
+          ),
+        ]),
+      ],
+    ),
+  );
+  return result ?? false;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -1011,10 +1198,11 @@ class _TableHeader extends StatelessWidget {
 }
 
 class _TableRow extends StatelessWidget {
-  final Student student;
-  final int     index;
+  final Student       student;
+  final int           index;
+  final VoidCallback? onReload;
 
-  const _TableRow({required this.student, required this.index});
+  const _TableRow({required this.student, required this.index, this.onReload});
 
   @override
   Widget build(BuildContext context) {
@@ -1068,14 +1256,36 @@ class _TableRow extends StatelessWidget {
               icon: Icons.edit_outlined,
               color: _S.primary, bg: _S.primaryDim,
               tooltip: 'Editar',
-              onTap: () {},
+              onTap: () async {
+                final ok = await showEditStudentDialog(context, student: student);
+                if (!context.mounted) return;
+                if (ok) {
+                  ScaffoldMessenger.of(context).showSnackBar(_successSnack('Alumno actualizado correctamente'));
+                  onReload?.call();
+                }
+              },
             ),
             const SizedBox(width: 8),
             _ActionBtn(
               icon: Icons.delete_outline_rounded,
               color: _S.unpaidText, bg: _S.unpaidBg,
               tooltip: 'Eliminar',
-              onTap: () {},
+              onTap: () async {
+                final confirmed = await _confirmDeleteStudent(context, student.fullName);
+                if (!context.mounted) return;
+                if (!confirmed) return;
+                try {
+                  await StudentService.deleteStudent(student.id);
+                  if (!context.mounted) return;
+                  ScaffoldMessenger.of(context).showSnackBar(_successSnack('Alumno eliminado'));
+                  onReload?.call();
+                } catch (e) {
+                  if (!context.mounted) return;
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    _errorSnack(e is StudentException ? e.message : 'Error al eliminar'),
+                  );
+                }
+              },
             ),
           ]),
         ),
@@ -1089,10 +1299,11 @@ class _TableRow extends StatelessWidget {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 class _MobileStudentCard extends StatelessWidget {
-  final Student student;
-  final int     index;
+  final Student       student;
+  final int           index;
+  final VoidCallback? onReload;
 
-  const _MobileStudentCard({required this.student, required this.index});
+  const _MobileStudentCard({required this.student, required this.index, this.onReload});
 
   @override
   Widget build(BuildContext context) {
@@ -1149,14 +1360,36 @@ class _MobileStudentCard extends StatelessWidget {
                   icon: Icons.edit_outlined,
                   color: _S.primary, bg: _S.primaryDim,
                   tooltip: 'Editar',
-                  onTap: () {},
+                  onTap: () async {
+                    final ok = await showEditStudentDialog(context, student: student);
+                    if (!context.mounted) return;
+                    if (ok) {
+                      ScaffoldMessenger.of(context).showSnackBar(_successSnack('Alumno actualizado correctamente'));
+                      onReload?.call();
+                    }
+                  },
                 ),
                 const SizedBox(width: 6),
                 _ActionBtn(
                   icon: Icons.delete_outline_rounded,
                   color: _S.unpaidText, bg: _S.unpaidBg,
                   tooltip: 'Eliminar',
-                  onTap: () {},
+                  onTap: () async {
+                    final confirmed = await _confirmDeleteStudent(context, student.fullName);
+                    if (!context.mounted) return;
+                    if (!confirmed) return;
+                    try {
+                      await StudentService.deleteStudent(student.id);
+                      if (!context.mounted) return;
+                      ScaffoldMessenger.of(context).showSnackBar(_successSnack('Alumno eliminado'));
+                      onReload?.call();
+                    } catch (e) {
+                      if (!context.mounted) return;
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        _errorSnack(e is StudentException ? e.message : 'Error al eliminar'),
+                      );
+                    }
+                  },
                 ),
               ]),
             ],
