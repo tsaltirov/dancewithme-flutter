@@ -1,3 +1,4 @@
+import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
@@ -158,7 +159,7 @@ class _State extends State<_EditStudentDialog> {
       if (!mounted) return;
       setState(() {
         _busy = false;
-        _err  = 'No se pudo actualizar el alumno. Comprueba los datos.';
+        _err  = 'student.updateError'.tr();
       });
     }
   }
@@ -196,23 +197,23 @@ class _State extends State<_EditStudentDialog> {
                 if (!isMobile)
                   Row(children: [
                     Expanded(child: _LabeledField(
-                      label: 'Nombre', hint: 'María', required: true,
+                      label: 'form.name'.tr(), hint: 'student.nameHint'.tr(), required: true,
                       ctrl: _nameCtrl,
                     )),
                     const SizedBox(width: 16),
                     Expanded(child: _LabeledField(
-                      label: 'Apellidos', hint: 'García López', required: true,
+                      label: 'form.lastName'.tr(), hint: 'student.lastNameHint'.tr(), required: true,
                       ctrl: _surnCtrl,
                     )),
                   ])
                 else ...[
                   _LabeledField(
-                    label: 'Nombre', hint: 'María', required: true,
+                    label: 'form.name'.tr(), hint: 'student.nameHint'.tr(), required: true,
                     ctrl: _nameCtrl,
                   ),
                   const SizedBox(height: 14),
                   _LabeledField(
-                    label: 'Apellidos', hint: 'García López', required: true,
+                    label: 'form.lastName'.tr(), hint: 'student.lastNameHint'.tr(), required: true,
                     ctrl: _surnCtrl,
                   ),
                 ],
@@ -220,13 +221,13 @@ class _State extends State<_EditStudentDialog> {
 
                 // ── Email ─────────────────────────────────────────────────────
                 _LabeledField(
-                  label: 'Email', hint: 'alumno@email.com', required: true,
+                  label: 'form.email'.tr(), hint: 'student.emailHint'.tr(), required: true,
                   ctrl: _emailCtrl,
                   keyboardType: TextInputType.emailAddress,
                   validator: (v) {
-                    if (v == null || v.trim().isEmpty) return 'El email es obligatorio';
+                    if (v == null || v.trim().isEmpty) return 'form.requiredEmail'.tr();
                     if (!RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(v.trim())) {
-                      return 'Introduce un email válido';
+                      return 'form.invalidEmail'.tr();
                     }
                     return null;
                   },
@@ -237,24 +238,24 @@ class _State extends State<_EditStudentDialog> {
                 if (!isMobile)
                   Row(children: [
                     Expanded(child: _LabeledField(
-                      label: 'Teléfono', hint: '+34 600 000 000',
+                      label: 'form.phone'.tr(), hint: 'student.phoneHint'.tr(),
                       ctrl: _phoneCtrl, keyboardType: TextInputType.phone,
                     )),
                     const SizedBox(width: 16),
                     Expanded(child: _DatePickerField(
-                      label: 'Fecha de nacimiento',
+                      label: 'form.birthDate'.tr(),
                       value: _dob != null ? _display(_dob!) : null,
                       onTap: _pickDate,
                     )),
                   ])
                 else ...[
                   _LabeledField(
-                    label: 'Teléfono', hint: '+34 600 000 000',
+                    label: 'form.phone'.tr(), hint: 'student.phoneHint'.tr(),
                     ctrl: _phoneCtrl, keyboardType: TextInputType.phone,
                   ),
                   const SizedBox(height: 14),
                   _DatePickerField(
-                    label: 'Fecha de nacimiento',
+                    label: 'form.birthDate'.tr(),
                     value: _dob != null ? _display(_dob!) : null,
                     onTap: _pickDate,
                   ),
@@ -271,14 +272,14 @@ class _State extends State<_EditStudentDialog> {
                 Row(children: [
                   Expanded(
                     child: _OutlineButton(
-                      label: 'Cancelar',
+                      label: 'form.cancel'.tr(),
                       onTap: _busy ? null : () => Navigator.pop(context),
                     ),
                   ),
                   const SizedBox(width: 12),
                   Expanded(
                     child: _PrimaryButton(
-                      label: 'Guardar Cambios',
+                      label: 'form.saveChanges'.tr(),
                       loading: _busy,
                       onTap: _submit,
                     ),
@@ -320,7 +321,7 @@ class _DialogHeader extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text('Editar Alumno', style: _ot(18, FontWeight.w700, _kInk)),
+            Text('student.editTitle'.tr(), style: _ot(18, FontWeight.w700, _kInk)),
             Text(studentName,
                 style: _ot(12, FontWeight.normal, _kMuted),
                 overflow: TextOverflow.ellipsis),
@@ -383,7 +384,7 @@ class _LabeledField extends StatelessWidget {
           style: _ot(14, FontWeight.normal, _kInk),
           validator: validator ??
               (required
-                  ? (v) => (v == null || v.trim().isEmpty) ? 'Campo obligatorio' : null
+                  ? (v) => (v == null || v.trim().isEmpty) ? 'form.required'.tr() : null
                   : null),
           decoration: _dec(hint),
         ),

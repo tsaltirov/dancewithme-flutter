@@ -8,7 +8,9 @@ import 'package:animations/animations.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../services/auth_service.dart';
+import '../services/event_service.dart';
 import '../services/school_service.dart';
+import '../services/student_service.dart';
 import '../widgets/add_school_dialog.dart';
 import '../widgets/logout_dialog.dart';
 import 'login_screen.dart';
@@ -146,6 +148,8 @@ class _HomeScreenState extends State<HomeScreen>
   AuthUser?    _user;
   List<School> _schools        = [];
   bool         _loadingSchools = true;
+  int          _totalStudents  = 0;
+  int          _totalEvents    = 0;
 
   @override
   void initState() {
@@ -190,9 +194,30 @@ class _HomeScreenState extends State<HomeScreen>
       final schools = await SchoolService.getUserSchools(userId);
       if (!mounted) return;
       setState(() { _schools = schools; _loadingSchools = false; });
+      _loadCounts(schools);
     } catch (_) {
       if (!mounted) return;
       setState(() => _loadingSchools = false);
+    }
+  }
+
+  Future<void> _loadCounts(List<School> schools) async {
+    if (schools.isEmpty) return;
+    try {
+      final ids = schools.map((s) => s.id).toList();
+      final studentCounts = await Future.wait(
+        ids.map((id) => StudentService.getBySchool(id).then((l) => l.length)),
+      );
+      final eventCounts = await Future.wait(
+        ids.map((id) => EventService.getBySchool(id).then((l) => l.length)),
+      );
+      if (!mounted) return;
+      setState(() {
+        _totalStudents = studentCounts.fold(0, (a, b) => a + b);
+        _totalEvents   = eventCounts.fold(0, (a, b) => a + b);
+      });
+    } catch (_) {
+      // Silent: stats stay at 0 if network fails
     }
   }
 
@@ -286,14 +311,16 @@ class _HomeScreenState extends State<HomeScreen>
               if (layout == _Layout.web)
                 Positioned.fill(
                   child: _WebLayout(
-                    tab:         _tab,
-                    fade:        _fade,
-                    user:        _user,
-                    schools:     _schools,
-                    loading:     _loadingSchools,
-                    onTabSelect: _switchTab,
-                    onLogout:    _logout,
-                    onAddSchool: _showAddSchool,
+                    tab:           _tab,
+                    fade:          _fade,
+                    user:          _user,
+                    schools:       _schools,
+                    loading:       _loadingSchools,
+                    totalStudents: _totalStudents,
+                    totalEvents:   _totalEvents,
+                    onTabSelect:   _switchTab,
+                    onLogout:      _logout,
+                    onAddSchool:   _showAddSchool,
                   ),
                 )
               else ...[
@@ -318,12 +345,14 @@ class _HomeScreenState extends State<HomeScreen>
                           child: _tab == 0
                               ? (layout == _Layout.tablet
                                   ? _TabletBody(
-                                      safeBottom: safeBottom,
-                                      user:       _user,
-                                      schools:    _schools,
-                                      loading:    _loadingSchools,
-                                      onLogout:   _logout,
-                                      onRefresh:  _onRefresh)
+                                      safeBottom:    safeBottom,
+                                      user:          _user,
+                                      schools:       _schools,
+                                      loading:       _loadingSchools,
+                                      totalStudents: _totalStudents,
+                                      totalEvents:   _totalEvents,
+                                      onLogout:      _logout,
+                                      onRefresh:     _onRefresh)
                                   : _HomeBody(
                                       safeBottom: safeBottom,
                                       user:       _user,
@@ -417,7 +446,15 @@ class _StatsStrip extends StatelessWidget {
   final double height;
   final double gap;
   final int    schoolCount;
-  const _StatsStrip({required this.height, required this.gap, required this.schoolCount});
+  final int    totalStudents;
+  final int    totalEvents;
+  const _StatsStrip({
+    required this.height,
+    required this.gap,
+    required this.schoolCount,
+    this.totalStudents = 0,
+    this.totalEvents   = 0,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -438,7 +475,7 @@ class _StatsStrip extends StatelessWidget {
       SizedBox(width: gap),
       Expanded(
         child: _StatCard(
-          num: '320', label: 'Alumnos',
+          num: totalStudents > 0 ? totalStudents.toString() : '—', label: 'Alumnos',
           numColor: _T.statPeachNum, labelColor: _T.statPeachLbl,
           height: height, bg: _T.statPeachBg,
           borderColor: _T.statPeachBorder,
@@ -447,7 +484,7 @@ class _StatsStrip extends StatelessWidget {
       SizedBox(width: gap),
       Expanded(
         child: _StatCard(
-          num: '5', label: 'Eventos',
+          num: totalEvents > 0 ? totalEvents.toString() : '—', label: 'Eventos',
           numColor: _T.statGreenNum, labelColor: _T.statGreenLbl,
           height: height, bg: _T.statGreenBg,
           borderColor: _T.statGreenBorder,
@@ -1006,6 +1043,8 @@ class _TabletBody extends StatelessWidget {
   final AuthUser?    user;
   final List<School> schools;
   final bool         loading;
+  final int          totalStudents;
+  final int          totalEvents;
   final VoidCallback onLogout;
   final Future<void> Function() onRefresh;
   const _TabletBody({
@@ -1013,6 +1052,8 @@ class _TabletBody extends StatelessWidget {
     required this.user,
     required this.schools,
     required this.loading,
+    this.totalStudents = 0,
+    this.totalEvents   = 0,
     required this.onLogout,
     required this.onRefresh,
   });
@@ -1032,7 +1073,8 @@ class _TabletBody extends StatelessWidget {
           children: [
             _TabletHeader(user: user, onLogout: onLogout),
             const SizedBox(height: 20),
-            _StatsStrip(height: 80, gap: 12, schoolCount: schools.length),
+            _StatsStrip(height: 80, gap: 12, schoolCount: schools.length,
+                totalStudents: totalStudents, totalEvents: totalEvents),
             const SizedBox(height: 20),
             Text('home.sectionSchools'.tr(),
                 style: _pjs(20, FontWeight.w700, _T.ink, ls: -0.2)),
@@ -1129,6 +1171,8 @@ class _WebLayout extends StatelessWidget {
   final AuthUser?        user;
   final List<School>     schools;
   final bool             loading;
+  final int              totalStudents;
+  final int              totalEvents;
   final ValueChanged<int> onTabSelect;
   final VoidCallback     onLogout;
   final VoidCallback     onAddSchool;
@@ -1139,6 +1183,8 @@ class _WebLayout extends StatelessWidget {
     required this.user,
     required this.schools,
     required this.loading,
+    this.totalStudents = 0,
+    this.totalEvents   = 0,
     required this.onTabSelect,
     required this.onLogout,
     required this.onAddSchool,
@@ -1166,7 +1212,8 @@ class _WebLayout extends StatelessWidget {
                 child: KeyedSubtree(
                   key: ValueKey(tab),
                   child: tab == 0
-                      ? _WebBody(schools: schools, loading: loading, onAddSchool: onAddSchool)
+                      ? _WebBody(schools: schools, loading: loading, onAddSchool: onAddSchool,
+                          totalStudents: totalStudents, totalEvents: totalEvents)
                       : _PlaceholderTab(index: tab),
                 ),
               ),
@@ -1414,7 +1461,15 @@ class _WebBody extends StatelessWidget {
   final List<School> schools;
   final bool         loading;
   final VoidCallback onAddSchool;
-  const _WebBody({required this.schools, required this.loading, required this.onAddSchool});
+  final int          totalStudents;
+  final int          totalEvents;
+  const _WebBody({
+    required this.schools,
+    required this.loading,
+    required this.onAddSchool,
+    this.totalStudents = 0,
+    this.totalEvents   = 0,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -1429,7 +1484,8 @@ class _WebBody extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  _StatsStrip(height: 90, gap: 16, schoolCount: schools.length),
+                  _StatsStrip(height: 90, gap: 16, schoolCount: schools.length,
+                      totalStudents: totalStudents, totalEvents: totalEvents),
                   const SizedBox(height: 24),
                   Row(
                     crossAxisAlignment: CrossAxisAlignment.center,

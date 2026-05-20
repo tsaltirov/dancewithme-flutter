@@ -1,3 +1,4 @@
+import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -110,7 +111,7 @@ class _AddGroupDialogState extends State<_AddGroupDialog> {
       if (!mounted) return;
       setState(() {
         _busy = false;
-        _err  = 'No se pudo crear el grupo. Comprueba los datos.';
+        _err  = 'groupForm.createError'.tr();
       });
     }
   }
@@ -145,30 +146,30 @@ class _AddGroupDialogState extends State<_AddGroupDialog> {
                 if (!isMobile)
                   Row(children: [
                     Expanded(child: _LabeledField(
-                      label: 'Nombre del grupo',
-                      hint: 'Ej: Salsa Nivel 1',
+                      label: 'groupForm.nameField'.tr(),
+                      hint: 'groupForm.nameHint'.tr(),
                       ctrl: _nameCtrl,
                       required: true,
                     )),
                     const SizedBox(width: 16),
                     Expanded(child: _LabeledField(
-                      label: 'Estilo de baile',
-                      hint: 'Salsa, Bachata, Flamenco…',
+                      label: 'groupForm.styleField'.tr(),
+                      hint: 'groupForm.styleHint'.tr(),
                       ctrl: _styleCtrl,
                       required: true,
                     )),
                   ])
                 else ...[
                   _LabeledField(
-                    label: 'Nombre del grupo',
-                    hint: 'Ej: Salsa Nivel 1',
+                    label: 'groupForm.nameField'.tr(),
+                    hint: 'groupForm.nameHint'.tr(),
                     ctrl: _nameCtrl,
                     required: true,
                   ),
                   const SizedBox(height: 14),
                   _LabeledField(
-                    label: 'Estilo de baile',
-                    hint: 'Salsa, Bachata, Flamenco…',
+                    label: 'groupForm.styleField'.tr(),
+                    hint: 'groupForm.styleHint'.tr(),
                     ctrl: _styleCtrl,
                     required: true,
                   ),
@@ -179,13 +180,13 @@ class _AddGroupDialogState extends State<_AddGroupDialog> {
                 if (!isMobile)
                   Row(children: [
                     Expanded(child: _LabeledDropdown(
-                      label: 'Nivel',
+                      label: 'groupForm.levelField'.tr(),
                       items: _kLevels,
                       onSaved: (v) => _level = v,
                     )),
                     const SizedBox(width: 16),
                     Expanded(child: _LabeledField(
-                      label: 'Capacidad máxima',
+                      label: 'groupForm.maxCapacity'.tr(),
                       hint: '20',
                       ctrl: _capacityCtrl,
                       required: true,
@@ -196,13 +197,13 @@ class _AddGroupDialogState extends State<_AddGroupDialog> {
                   ])
                 else ...[
                   _LabeledDropdown(
-                    label: 'Nivel',
+                    label: 'groupForm.levelField'.tr(),
                     items: _kLevels,
                     onSaved: (v) => _level = v,
                   ),
                   const SizedBox(height: 14),
                   _LabeledField(
-                    label: 'Capacidad máxima',
+                    label: 'groupForm.maxCapacity'.tr(),
                     hint: '20',
                     ctrl: _capacityCtrl,
                     required: true,
@@ -215,8 +216,8 @@ class _AddGroupDialogState extends State<_AddGroupDialog> {
 
                 // ── Fila 3: Horario (ancho completo) ──────────────────────
                 _LabeledField(
-                  label: 'Horario',
-                  hint: 'Ej: Lunes y Miércoles 18:00-19:30',
+                  label: 'groupForm.scheduleField'.tr(),
+                  hint: 'groupForm.scheduleHint'.tr(),
                   ctrl: _scheduleCtrl,
                   required: true,
                 ),
@@ -232,14 +233,14 @@ class _AddGroupDialogState extends State<_AddGroupDialog> {
                 Row(children: [
                   Expanded(
                     child: _OutlineButton(
-                      label: 'Cancelar',
+                      label: 'form.cancel'.tr(),
                       onTap: _busy ? null : () => Navigator.pop(context),
                     ),
                   ),
                   const SizedBox(width: 12),
                   Expanded(
                     child: _PrimaryButton(
-                      label: 'Crear Grupo',
+                      label: 'groupForm.createBtn'.tr(),
                       loading: _busy,
                       onTap: _submit,
                     ),
@@ -254,7 +255,7 @@ class _AddGroupDialogState extends State<_AddGroupDialog> {
   }
 
   String? _capacityValidator(String? v) {
-    if (v == null || v.trim().isEmpty) return 'Campo obligatorio';
+    if (v == null || v.trim().isEmpty) return 'form.required'.tr();
     final n = int.tryParse(v.trim());
     if (n == null || n <= 0) return 'Debe ser mayor que 0';
     return null;
@@ -287,7 +288,7 @@ class _DialogHeader extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text('Nuevo Grupo', style: _ot(18, FontWeight.w700, _kInk)),
+            Text('groupForm.addTitle'.tr(), style: _ot(18, FontWeight.w700, _kInk)),
             Text('Rellena los datos del grupo',
                 style: _ot(12, FontWeight.normal, _kMuted)),
           ],
@@ -352,7 +353,7 @@ class _LabeledField extends StatelessWidget {
           validator: validator ??
               (required
                   ? (v) => (v == null || v.trim().isEmpty)
-                      ? 'Campo obligatorio'
+                      ? 'form.required'.tr()
                       : null
                   : null),
           decoration: _dec(hint),
@@ -392,7 +393,7 @@ class _LabeledDropdown extends StatelessWidget {
         const SizedBox(height: 6),
         DropdownButtonFormField<String>(
           initialValue: null,
-          decoration: _dec('Selecciona el nivel'),
+          decoration: _dec('groupForm.selectLevel'.tr()),
           icon: const Icon(
               Icons.keyboard_arrow_down_rounded, color: _kHint, size: 20),
           isExpanded: true,

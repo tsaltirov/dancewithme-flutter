@@ -1,3 +1,4 @@
+import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
@@ -121,7 +122,7 @@ class _EditGroupDialogState extends State<_EditGroupDialog> {
       if (!mounted) return;
       setState(() {
         _busy = false;
-        _err  = 'No se pudo actualizar el grupo. Comprueba los datos.';
+        _err  = 'groupForm.updateError'.tr();
       });
     }
   }
@@ -159,30 +160,30 @@ class _EditGroupDialogState extends State<_EditGroupDialog> {
                 if (!isMobile)
                   Row(children: [
                     Expanded(child: _LabeledField(
-                      label: 'Nombre del grupo',
-                      hint: 'Ej: Salsa Nivel 1',
+                      label: 'groupForm.nameField'.tr(),
+                      hint: 'groupForm.nameHint'.tr(),
                       ctrl: _nameCtrl,
                       required: true,
                     )),
                     const SizedBox(width: 16),
                     Expanded(child: _LabeledField(
-                      label: 'Estilo de baile',
-                      hint: 'Salsa, Bachata…',
+                      label: 'groupForm.styleField'.tr(),
+                      hint: 'groupForm.styleHint'.tr(),
                       ctrl: _styleCtrl,
                       required: true,
                     )),
                   ])
                 else ...[
                   _LabeledField(
-                    label: 'Nombre del grupo',
-                    hint: 'Ej: Salsa Nivel 1',
+                    label: 'groupForm.nameField'.tr(),
+                    hint: 'groupForm.nameHint'.tr(),
                     ctrl: _nameCtrl,
                     required: true,
                   ),
                   const SizedBox(height: 14),
                   _LabeledField(
-                    label: 'Estilo de baile',
-                    hint: 'Salsa, Bachata…',
+                    label: 'groupForm.styleField'.tr(),
+                    hint: 'groupForm.styleHint'.tr(),
                     ctrl: _styleCtrl,
                     required: true,
                   ),
@@ -193,28 +194,28 @@ class _EditGroupDialogState extends State<_EditGroupDialog> {
                 if (!isMobile)
                   Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
                     Expanded(child: _LabeledDropdown(
-                      label: 'Nivel',
+                      label: 'groupForm.levelField'.tr(),
                       initialValue: widget.group.level,
                       items: _kLevels,
                       onSaved: (v) => _level = v ?? _level,
                     )),
                     const SizedBox(width: 16),
                     Expanded(child: _CapacityStepper(
-                      label: 'Capacidad máxima',
+                      label: 'groupForm.maxCapacity'.tr(),
                       value: _capacity,
                       onChange: (v) => setState(() => _capacity = v),
                     )),
                   ])
                 else ...[
                   _LabeledDropdown(
-                    label: 'Nivel',
+                    label: 'groupForm.levelField'.tr(),
                     initialValue: widget.group.level,
                     items: _kLevels,
                     onSaved: (v) => _level = v ?? _level,
                   ),
                   const SizedBox(height: 14),
                   _CapacityStepper(
-                    label: 'Capacidad máxima',
+                    label: 'groupForm.maxCapacity'.tr(),
                     value: _capacity,
                     onChange: (v) => setState(() => _capacity = v),
                   ),
@@ -223,8 +224,8 @@ class _EditGroupDialogState extends State<_EditGroupDialog> {
 
                 // ── Fila 3: Horario (full width) ───────────────────────────
                 _LabeledField(
-                  label: 'Horario',
-                  hint: 'Ej: Lunes y Miércoles 18:00-19:30',
+                  label: 'groupForm.scheduleField'.tr(),
+                  hint: 'groupForm.scheduleHint'.tr(),
                   ctrl: _scheduleCtrl,
                   required: true,
                 ),
@@ -240,14 +241,14 @@ class _EditGroupDialogState extends State<_EditGroupDialog> {
                 Row(children: [
                   Expanded(
                     child: _OutlineButton(
-                      label: 'Cancelar',
+                      label: 'form.cancel'.tr(),
                       onTap: _busy ? null : () => Navigator.pop(context),
                     ),
                   ),
                   const SizedBox(width: 12),
                   Expanded(
                     child: _PrimaryButton(
-                      label: 'Guardar Cambios',
+                      label: 'groupForm.saveChanges'.tr(),
                       loading: _busy,
                       onTap: _submit,
                     ),
@@ -289,7 +290,7 @@ class _DialogHeader extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text('Editar Grupo', style: _ot(18, FontWeight.w700, _kInk)),
+            Text('groupForm.editTitle'.tr(), style: _ot(18, FontWeight.w700, _kInk)),
             Text(
               groupName,
               style: _ot(12, FontWeight.normal, _kMuted),
@@ -443,7 +444,7 @@ class _LabeledField extends StatelessWidget {
           controller: ctrl,
           style: _ot(14, FontWeight.normal, _kInk),
           validator: required
-              ? (v) => (v == null || v.trim().isEmpty) ? 'Campo obligatorio' : null
+              ? (v) => (v == null || v.trim().isEmpty) ? 'form.required'.tr() : null
               : null,
           decoration: _dec(hint),
         ),
@@ -484,7 +485,7 @@ class _LabeledDropdown extends StatelessWidget {
         const SizedBox(height: 6),
         DropdownButtonFormField<String>(
           initialValue: initialValue,
-          decoration: _dec('Selecciona el nivel'),
+          decoration: _dec('groupForm.selectLevel'.tr()),
           icon: const Icon(
               Icons.keyboard_arrow_down_rounded, color: _kHint, size: 20),
           isExpanded: true,
