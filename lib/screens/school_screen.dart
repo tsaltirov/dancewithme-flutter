@@ -7,6 +7,12 @@ import 'package:google_fonts/google_fonts.dart';
 import '../services/group_service.dart';
 import '../services/school_service.dart';
 import '../services/student_service.dart';
+import '../services/event_service.dart';
+import '../widgets/add_event_dialog.dart';
+import '../widgets/edit_event_dialog.dart';
+import '../widgets/enroll_event_dialog.dart';
+import '../widgets/enroll_group_dialog.dart';
+import '../widgets/pay_student_dialog.dart';
 import '../widgets/add_group_dialog.dart';
 import '../widgets/add_student_dialog.dart';
 import '../widgets/edit_group_dialog.dart';
@@ -55,7 +61,7 @@ TextStyle _st(double sz, FontWeight w, Color c, {double ls = 0}) =>
 const _kAvatarSlot = 48.0; // avatar (36) + gap (12)
 const _kColCurso   = 72.0;
 const _kColEstado  = 104.0;
-const _kColActions = 80.0;  // 32 + 8 + 32 + padding
+const _kColActions = 120.0;  // 32 + 8 + 32 + 8 + 32 + padding (edit+pay+delete)
 
 // Column header label style
 Widget _colLbl(String text) => Text(
@@ -104,11 +110,12 @@ class SchoolScreen extends StatefulWidget {
 }
 
 class _SchoolScreenState extends State<SchoolScreen> {
-  _Tab   _tab    = _Tab.students;
-  int    _filter = 0;
-  bool   _loading = true;
-  String? _error;
-  List<Student> _allStudents = [];
+  _Tab             _tab            = _Tab.students;
+  int              _filter         = 0;
+  bool             _loading        = true;
+  String?          _error;
+  List<Student>    _allStudents    = [];
+  Map<int, String> _studentGroupMap = {};
   final _searchCtrl = TextEditingController();
 
   @override
@@ -126,14 +133,38 @@ class _SchoolScreenState extends State<SchoolScreen> {
   Future<void> _loadData() async {
     setState(() { _loading = true; _error = null; });
     try {
-      final students = await StudentService.getBySchoolWithPayments(
-        widget.school.id,
-      );
+      // Load students + group map in parallel; group map failure is non-fatal
+      final results = await Future.wait([
+        StudentService.getBySchoolWithPayments(widget.school.id),
+        _buildGroupMap(widget.school.id),
+      ]);
       if (!mounted) return;
-      setState(() { _allStudents = students; _loading = false; });
+      setState(() {
+        _allStudents     = results[0] as List<Student>;
+        _studentGroupMap = results[1] as Map<int, String>;
+        _loading         = false;
+      });
     } catch (e) {
       if (!mounted) return;
       setState(() { _error = e.toString(); _loading = false; });
+    }
+  }
+
+  static Future<Map<int, String>> _buildGroupMap(int schoolId) async {
+    try {
+      final groups = await GroupService.getBySchool(schoolId);
+      final enrollmentLists = await Future.wait(
+        groups.map((g) => GroupService.getEnrollments(g.id)),
+      );
+      final map = <int, String>{};
+      for (var i = 0; i < groups.length; i++) {
+        for (final e in enrollmentLists[i]) {
+          if (e.active) map[e.studentId] = groups[i].name;
+        }
+      }
+      return map;
+    } catch (_) {
+      return {};
     }
   }
 
@@ -300,6 +331,7 @@ Future<void> _handleAddCsv() async {
           _Layout.web    => _WebSchool(
               school: widget.school, tab: _tab, filter: _filter,
               searchCtrl: _searchCtrl, students: _students,
+              groupMap: _studentGroupMap,
               loading: _loading, error: _error,
               onTab: (t) => setState(() => _tab = t),
               onFilter: (f) => setState(() => _filter = f),
@@ -312,6 +344,7 @@ Future<void> _handleAddCsv() async {
           _Layout.tablet => _TabletSchool(
               school: widget.school, tab: _tab, filter: _filter,
               searchCtrl: _searchCtrl, students: _students, safeBottom: safeB,
+              groupMap: _studentGroupMap,
               loading: _loading, error: _error,
               onTab: (t) => setState(() => _tab = t),
               onFilter: (f) => setState(() => _filter = f),
@@ -324,6 +357,7 @@ Future<void> _handleAddCsv() async {
           _Layout.mobile => _MobileSchool(
               school: widget.school, tab: _tab, filter: _filter,
               searchCtrl: _searchCtrl, students: _students, safeBottom: safeB,
+              groupMap: _studentGroupMap,
               loading: _loading, error: _error,
               onTab: (t) => setState(() => _tab = t),
               onFilter: (f) => setState(() => _filter = f),
@@ -344,14 +378,15 @@ Future<void> _handleAddCsv() async {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 class _MobileSchool extends StatelessWidget {
-  final School school;
-  final _Tab   tab;
-  final int    filter;
+  final School             school;
+  final _Tab               tab;
+  final int                filter;
   final TextEditingController searchCtrl;
-  final List<Student> students;
-  final double safeBottom;
-  final bool   loading;
-  final String? error;
+  final List<Student>      students;
+  final Map<int, String>   groupMap;
+  final double             safeBottom;
+  final bool               loading;
+  final String?            error;
   final void Function(_Tab) onTab;
   final void Function(int)  onFilter;
   final VoidCallback        onSearch;
@@ -363,6 +398,7 @@ class _MobileSchool extends StatelessWidget {
   const _MobileSchool({
     required this.school, required this.tab, required this.filter,
     required this.searchCtrl, required this.students, required this.safeBottom,
+    required this.groupMap,
     required this.loading, required this.error,
     required this.onTab, required this.onFilter,
     required this.onSearch, required this.onBack, required this.onRetry,
@@ -382,13 +418,12 @@ class _MobileSchool extends StatelessWidget {
       Expanded(
         child: switch (tab) {
           _Tab.students => _StudentsBody(
-              students: students, filter: filter,
+              students: students, filter: filter, groupMap: groupMap,
               searchCtrl: searchCtrl, onFilter: onFilter, onSearch: onSearch,
               tableMode: false, safeBottom: safeBottom,
               loading: loading, error: error, onRetry: onRetry,
             ),
-          _Tab.events   => _PlaceholderContent(
-              icon: Icons.event_rounded, labelKey: 'school.tabEvents'),
+          _Tab.events   => _EventsTab(school: school),
           _Tab.alerts   => _PlaceholderContent(
               icon: Icons.notifications_outlined, labelKey: 'school.tabAlerts'),
           _Tab.wardrobe => _PlaceholderContent(
@@ -407,14 +442,15 @@ class _MobileSchool extends StatelessWidget {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 class _TabletSchool extends StatelessWidget {
-  final School school;
-  final _Tab   tab;
-  final int    filter;
+  final School             school;
+  final _Tab               tab;
+  final int                filter;
   final TextEditingController searchCtrl;
-  final List<Student> students;
-  final double safeBottom;
-  final bool   loading;
-  final String? error;
+  final List<Student>      students;
+  final Map<int, String>   groupMap;
+  final double             safeBottom;
+  final bool               loading;
+  final String?            error;
   final void Function(_Tab) onTab;
   final void Function(int)  onFilter;
   final VoidCallback        onSearch;
@@ -426,6 +462,7 @@ class _TabletSchool extends StatelessWidget {
   const _TabletSchool({
     required this.school, required this.tab, required this.filter,
     required this.searchCtrl, required this.students, required this.safeBottom,
+    required this.groupMap,
     required this.loading, required this.error,
     required this.onTab, required this.onFilter,
     required this.onSearch, required this.onBack, required this.onRetry,
@@ -449,14 +486,13 @@ class _TabletSchool extends StatelessWidget {
           _Tab.students => Padding(
               padding: const EdgeInsets.symmetric(horizontal: 24),
               child: _StudentsBody(
-                students: students, filter: filter,
+                students: students, filter: filter, groupMap: groupMap,
                 searchCtrl: searchCtrl, onFilter: onFilter, onSearch: onSearch,
                 tableMode: true, safeBottom: safeBottom, showSearch: false,
                 loading: loading, error: error, onRetry: onRetry,
               ),
             ),
-          _Tab.events   => _PlaceholderContent(
-              icon: Icons.event_rounded, labelKey: 'school.tabEvents'),
+          _Tab.events   => _EventsTab(school: school),
           _Tab.alerts   => _PlaceholderContent(
               icon: Icons.notifications_outlined, labelKey: 'school.tabAlerts'),
           _Tab.wardrobe => _PlaceholderContent(
@@ -475,13 +511,14 @@ class _TabletSchool extends StatelessWidget {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 class _WebSchool extends StatelessWidget {
-  final School school;
-  final _Tab   tab;
-  final int    filter;
+  final School             school;
+  final _Tab               tab;
+  final int                filter;
   final TextEditingController searchCtrl;
-  final List<Student> students;
-  final bool   loading;
-  final String? error;
+  final List<Student>      students;
+  final Map<int, String>   groupMap;
+  final bool               loading;
+  final String?            error;
   final void Function(_Tab) onTab;
   final void Function(int)  onFilter;
   final VoidCallback        onSearch;
@@ -493,6 +530,7 @@ class _WebSchool extends StatelessWidget {
   const _WebSchool({
     required this.school, required this.tab, required this.filter,
     required this.searchCtrl, required this.students,
+    required this.groupMap,
     required this.loading, required this.error,
     required this.onTab, required this.onFilter,
     required this.onSearch, required this.onBack, required this.onRetry,
@@ -519,7 +557,7 @@ class _WebSchool extends StatelessWidget {
                   child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
                     Expanded(
                       child: _StudentsBody(
-                        students: students, filter: filter,
+                        students: students, filter: filter, groupMap: groupMap,
                         searchCtrl: searchCtrl, onFilter: onFilter, onSearch: onSearch,
                         tableMode: true, safeBottom: 0, showSearch: false,
                         loading: loading, error: error, onRetry: onRetry,
@@ -988,10 +1026,11 @@ class _TabPill extends StatelessWidget {
 class _StudentsBody extends StatelessWidget {
   final List<Student>         students;
   final int                   filter;
+  final Map<int, String>      groupMap;
   final TextEditingController searchCtrl;
   final void Function(int)    onFilter;
   final VoidCallback          onSearch;
-  final bool                  tableMode;   // true → table layout (tablet/web)
+  final bool                  tableMode;
   final double                safeBottom;
   final bool                  showSearch;
   final bool                  loading;
@@ -1006,8 +1045,9 @@ class _StudentsBody extends StatelessWidget {
     required this.onSearch,
     required this.tableMode,
     required this.safeBottom,
+    this.groupMap  = const {},
     this.showSearch = true,
-    this.loading = false,
+    this.loading    = false,
     this.error,
     this.onRetry,
   });
@@ -1021,34 +1061,38 @@ class _StudentsBody extends StatelessWidget {
     }
     if (error != null) return _ErrorBody(onRetry: onRetry);
 
-    return ListView(
-      physics: const BouncingScrollPhysics(),
-      padding: EdgeInsets.fromLTRB(0, 16, 0, safeBottom + 20),
-      children: [
-        if (showSearch) ...[
-          _SearchField(ctrl: searchCtrl, onChanged: onSearch),
-          const SizedBox(height: 12),
+    return RefreshIndicator(
+      color: _S.primary,
+      onRefresh: () async { onRetry?.call(); },
+      child: ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: EdgeInsets.fromLTRB(0, 16, 0, safeBottom + 20),
+        children: [
+          if (showSearch) ...[
+            _SearchField(ctrl: searchCtrl, onChanged: onSearch),
+            const SizedBox(height: 12),
+          ],
+          _FilterChips(selected: filter, onSelect: onFilter),
+          const SizedBox(height: 16),
+          if (students.isEmpty)
+            const _EmptyStudents()
+          else if (tableMode) ...[
+            // ── Table header ──────────────────────────────────────────────────
+            _TableHeader(),
+            const SizedBox(height: 6),
+            // ── Table rows ────────────────────────────────────────────────────
+            ...students.asMap().entries.map((e) => Padding(
+                  padding: const EdgeInsets.only(bottom: 6),
+                  child: _TableRow(student: e.value, index: e.key, onReload: onRetry, groupMap: groupMap),
+                )),
+          ] else
+            // ── Mobile cards ──────────────────────────────────────────────────
+            ...students.asMap().entries.map((e) => Padding(
+                  padding: const EdgeInsets.only(bottom: 10),
+                  child: _MobileStudentCard(student: e.value, index: e.key, onReload: onRetry, groupMap: groupMap),
+                )),
         ],
-        _FilterChips(selected: filter, onSelect: onFilter),
-        const SizedBox(height: 16),
-        if (students.isEmpty)
-          const _EmptyStudents()
-        else if (tableMode) ...[
-          // ── Table header ──────────────────────────────────────────────────
-          _TableHeader(),
-          const SizedBox(height: 6),
-          // ── Table rows ────────────────────────────────────────────────────
-          ...students.asMap().entries.map((e) => Padding(
-                padding: const EdgeInsets.only(bottom: 6),
-                child: _TableRow(student: e.value, index: e.key, onReload: onRetry),
-              )),
-        ] else
-          // ── Mobile cards ──────────────────────────────────────────────────
-          ...students.asMap().entries.map((e) => Padding(
-                padding: const EdgeInsets.only(bottom: 10),
-                child: _MobileStudentCard(student: e.value, index: e.key, onReload: onRetry),
-              )),
-      ],
+      ),
     );
   }
 }
@@ -1162,6 +1206,96 @@ Future<bool> _confirmDeleteStudent(BuildContext context, String name) async {
   return result ?? false;
 }
 
+// ─── Group delete confirmation ────────────────────────────────────────────────
+Future<bool> _confirmDeleteGroup(BuildContext context, String name) async {
+  final result = await showDialog<bool>(
+    context: context,
+    barrierDismissible: true,
+    builder: (ctx) => AlertDialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      backgroundColor: Colors.white,
+      contentPadding: const EdgeInsets.fromLTRB(24, 24, 24, 0),
+      actionsPadding: const EdgeInsets.fromLTRB(24, 0, 24, 20),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 52, height: 52,
+            decoration: BoxDecoration(
+              color: _S.unpaidBg,
+              borderRadius: BorderRadius.circular(14),
+            ),
+            alignment: Alignment.center,
+            child: const Icon(Icons.group_remove_rounded,
+                color: _S.unpaidText, size: 26),
+          ),
+          const SizedBox(height: 16),
+          Text('¿Eliminar grupo?',
+              style: _st(18, FontWeight.w700, _S.ink),
+              textAlign: TextAlign.center),
+          const SizedBox(height: 10),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              color: _S.unpaidBg,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Row(mainAxisSize: MainAxisSize.min, children: [
+              const Icon(Icons.warning_amber_rounded,
+                  color: _S.unpaidText, size: 16),
+              const SizedBox(width: 8),
+              Flexible(
+                child: Text(name,
+                    style: _st(13, FontWeight.w600, _S.unpaidText),
+                    textAlign: TextAlign.center),
+              ),
+            ]),
+          ),
+          const SizedBox(height: 8),
+          Text('Se eliminará el grupo y sus datos. Esta acción no se puede deshacer.',
+              style: _st(13, FontWeight.normal, _S.muted),
+              textAlign: TextAlign.center),
+          const SizedBox(height: 20),
+        ],
+      ),
+      actions: [
+        Row(children: [
+          Expanded(
+            child: OutlinedButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              style: OutlinedButton.styleFrom(
+                side: const BorderSide(color: _S.border),
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12)),
+                padding: const EdgeInsets.symmetric(vertical: 12),
+              ),
+              child: Text('Cancelar',
+                  style: _st(14, FontWeight.w600, _S.muted)),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: ElevatedButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: _S.unpaidText,
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12)),
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                elevation: 0,
+              ),
+              child: Text('Eliminar',
+                  style: _st(14, FontWeight.w600, Colors.white)),
+            ),
+          ),
+        ]),
+      ],
+    ),
+  );
+  return result ?? false;
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 //  TABLE (tablet / web)
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -1198,11 +1332,17 @@ class _TableHeader extends StatelessWidget {
 }
 
 class _TableRow extends StatelessWidget {
-  final Student       student;
-  final int           index;
-  final VoidCallback? onReload;
+  final Student          student;
+  final int              index;
+  final VoidCallback?    onReload;
+  final Map<int, String> groupMap;
 
-  const _TableRow({required this.student, required this.index, this.onReload});
+  const _TableRow({
+    required this.student,
+    required this.index,
+    this.onReload,
+    this.groupMap = const {},
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -1232,8 +1372,12 @@ class _TableRow extends StatelessWidget {
         SizedBox(
           width: _kColCurso,
           child: Center(
-            child: Text('—',
-                style: _st(13, FontWeight.normal, _S.hint)),
+            child: Text(
+              groupMap[student.id] ?? '—',
+              style: _st(12, FontWeight.normal,
+                  groupMap.containsKey(student.id) ? _S.ink : _S.hint),
+              overflow: TextOverflow.ellipsis,
+            ),
           ),
         ),
         // Email
@@ -1263,6 +1407,18 @@ class _TableRow extends StatelessWidget {
                   ScaffoldMessenger.of(context).showSnackBar(_successSnack('Alumno actualizado correctamente'));
                   onReload?.call();
                 }
+              },
+            ),
+            const SizedBox(width: 8),
+            _ActionBtn(
+              icon: Icons.payments_rounded,
+              color: _S.paidText, bg: _S.paidBg,
+              tooltip: 'Gestionar pago',
+              onTap: () async {
+                final changed = await showPayStudentDialog(
+                  context, student: student, schoolId: student.schoolId);
+                if (!context.mounted) return;
+                if (changed) onReload?.call();
               },
             ),
             const SizedBox(width: 8),
@@ -1299,11 +1455,17 @@ class _TableRow extends StatelessWidget {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 class _MobileStudentCard extends StatelessWidget {
-  final Student       student;
-  final int           index;
-  final VoidCallback? onReload;
+  final Student          student;
+  final int              index;
+  final VoidCallback?    onReload;
+  final Map<int, String> groupMap;
 
-  const _MobileStudentCard({required this.student, required this.index, this.onReload});
+  const _MobileStudentCard({
+    required this.student,
+    required this.index,
+    this.onReload,
+    this.groupMap = const {},
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -1352,7 +1514,11 @@ class _MobileStudentCard extends StatelessWidget {
                   ),
                   child: Row(mainAxisSize: MainAxisSize.min, children: [
                     Text('Curso: ', style: _st(11, FontWeight.w500, _S.hint)),
-                    Text('—', style: _st(11, FontWeight.normal, _S.hint)),
+                    Text(
+                      groupMap[student.id] ?? '—',
+                      style: _st(11, FontWeight.normal,
+                          groupMap.containsKey(student.id) ? _S.ink : _S.hint),
+                    ),
                   ]),
                 ),
                 const Spacer(),
@@ -1367,6 +1533,18 @@ class _MobileStudentCard extends StatelessWidget {
                       ScaffoldMessenger.of(context).showSnackBar(_successSnack('Alumno actualizado correctamente'));
                       onReload?.call();
                     }
+                  },
+                ),
+                const SizedBox(width: 6),
+                _ActionBtn(
+                  icon: Icons.payments_rounded,
+                  color: _S.paidText, bg: _S.paidBg,
+                  tooltip: 'Gestionar pago',
+                  onTap: () async {
+                    final changed = await showPayStudentDialog(
+                      context, student: student, schoolId: student.schoolId);
+                    if (!context.mounted) return;
+                    if (changed) onReload?.call();
                   },
                 ),
                 const SizedBox(width: 6),
@@ -1682,21 +1860,21 @@ class _EventsPanel extends StatelessWidget {
             ),
           ]),
           const SizedBox(height: 14),
-          _EventCard(title: 'Exhibición de Salsa',  date: '15 Feb 2025', active: true),
+          _PanelEventCard(title: 'Exhibición de Salsa',  date: '15 Feb 2025', active: true),
           const SizedBox(height: 10),
-          _EventCard(title: 'Clase Especial Tango', date: '22 Feb 2025', active: false),
+          _PanelEventCard(title: 'Clase Especial Tango', date: '22 Feb 2025', active: false),
         ]),
       ),
     );
   }
 }
 
-class _EventCard extends StatelessWidget {
+class _PanelEventCard extends StatelessWidget {
   final String title;
   final String date;
   final bool   active;
 
-  const _EventCard({required this.title, required this.date, required this.active});
+  const _PanelEventCard({required this.title, required this.date, required this.active});
 
   @override
   Widget build(BuildContext context) {
@@ -1737,6 +1915,757 @@ class _EventCard extends StatelessWidget {
         ),
       ]),
     );
+  }
+}
+
+// ─── Events tab ───────────────────────────────────────────────────────────────
+class _EventsTab extends StatefulWidget {
+  final School school;
+  const _EventsTab({required this.school});
+
+  @override
+  State<_EventsTab> createState() => _EventsTabState();
+}
+
+class _EventsTabState extends State<_EventsTab> {
+  bool         _loading = true;
+  String?      _error;
+  List<Event>  _events  = [];
+  String       _query   = '';
+  final _searchCtrl = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    _loadEvents();
+  }
+
+  @override
+  void dispose() {
+    _searchCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadEvents() async {
+    setState(() { _loading = true; _error = null; });
+    try {
+      final events = await EventService.getBySchool(widget.school.id);
+      if (!mounted) return;
+      setState(() { _events = events; _loading = false; });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() { _error = e.toString(); _loading = false; });
+    }
+  }
+
+  List<Event> get _filtered {
+    if (_query.trim().isEmpty) return _events;
+    final q = _query.toLowerCase();
+    return _events.where((e) =>
+      e.title.toLowerCase().contains(q) ||
+      e.venue.toLowerCase().contains(q),
+    ).toList();
+  }
+
+  Future<void> _onEventAdded() async {
+    await _loadEvents();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..clearSnackBars()
+      ..showSnackBar(SnackBar(
+        content: Row(children: [
+          const Icon(Icons.check_circle_outline_rounded,
+              color: Colors.white, size: 18),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text('Evento creado con éxito',
+                style: GoogleFonts.outfit(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w500,
+                    color: Colors.white)),
+          ),
+        ]),
+        backgroundColor: const Color(0xFF22C55E),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        margin: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+        duration: const Duration(seconds: 3),
+      ));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final w        = MediaQuery.of(context).size.width;
+    final isMobile = w < 600;
+    final hPad     = isMobile ? 16.0 : 24.0;
+
+    return Padding(
+      padding: EdgeInsets.fromLTRB(hPad, 16, hPad, 20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // ── Header ───────────────────────────────────────────────────────
+          if (!isMobile)
+            Row(children: [
+              Text('Eventos', style: _st(20, FontWeight.w800, _S.ink, ls: -0.4)),
+              if (_events.isNotEmpty) ...[
+                const SizedBox(width: 10),
+                _CountBadge(count: _filtered.length),
+              ],
+              const Spacer(),
+              SizedBox(
+                width: 200,
+                child: _EventSearchField(
+                  ctrl: _searchCtrl,
+                  onChanged: (v) => setState(() => _query = v),
+                  onClear: () { _searchCtrl.clear(); setState(() => _query = ''); },
+                ),
+              ),
+              const SizedBox(width: 12),
+              _NewEventButton(schoolId: widget.school.id, onSuccess: _onEventAdded),
+            ])
+          else ...[
+            Row(children: [
+              Text('Eventos', style: _st(20, FontWeight.w800, _S.ink, ls: -0.4)),
+              if (_events.isNotEmpty) ...[
+                const SizedBox(width: 10),
+                _CountBadge(count: _filtered.length),
+              ],
+              const Spacer(),
+              _NewEventButton(schoolId: widget.school.id, onSuccess: _onEventAdded),
+            ]),
+            const SizedBox(height: 10),
+            _EventSearchField(
+              ctrl: _searchCtrl,
+              onChanged: (v) => setState(() => _query = v),
+              onClear: () { _searchCtrl.clear(); setState(() => _query = ''); },
+            ),
+          ],
+          const SizedBox(height: 16),
+
+          // ── Content ───────────────────────────────────────────────────────
+          Expanded(child: _buildBody()),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildBody() {
+    if (_loading) {
+      return const Center(
+        child: CircularProgressIndicator(color: _S.primary, strokeWidth: 2.5),
+      );
+    }
+    if (_error != null) return _ErrorBody(onRetry: _loadEvents);
+
+    final list = _filtered;
+    if (list.isEmpty) {
+      return Center(
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          Container(
+            width: 72, height: 72,
+            decoration: const BoxDecoration(
+                color: _S.primaryDim, shape: BoxShape.circle),
+            child: const Icon(Icons.event_outlined, color: _S.primary, size: 36),
+          ),
+          const SizedBox(height: 16),
+          Text(
+            _events.isEmpty ? 'school.noEvents'.tr() : 'school.noResults'.tr(),
+            style: _st(16, FontWeight.w600, _S.ink),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            _events.isEmpty
+                ? 'school.noEventsDesc'.tr()
+                : 'school.noResultsDesc'.tr(),
+            textAlign: TextAlign.center,
+            style: _st(13, FontWeight.normal, _S.hint),
+          ),
+        ]),
+      );
+    }
+
+    return LayoutBuilder(builder: (_, bc) {
+      final isMobile = bc.maxWidth < 600;
+      if (isMobile) {
+        return RefreshIndicator(
+          color: _S.primary,
+          onRefresh: _loadEvents,
+          child: ListView.separated(
+            physics: const AlwaysScrollableScrollPhysics(),
+            itemCount: list.length,
+            separatorBuilder: (_, __) => const SizedBox(height: 12),
+            itemBuilder: (_, i) => _EventCard(event: list[i], index: i, onUpdated: _loadEvents),
+          ),
+        );
+      }
+      final cols    = bc.maxWidth >= 900 ? 3 : 2;
+      final spacing = cols == 3 ? 16.0 : 12.0;
+      final cardW   = (bc.maxWidth - spacing * (cols - 1)) / cols;
+      return RefreshIndicator(
+        color: _S.primary,
+        onRefresh: _loadEvents,
+        child: SingleChildScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          child: Wrap(
+            spacing: spacing,
+            runSpacing: spacing,
+            children: list.asMap().entries.map((e) => SizedBox(
+              width: cardW,
+              child: _EventCard(event: e.value, index: e.key, onUpdated: _loadEvents),
+            )).toList(),
+          ),
+        ),
+      );
+    });
+  }
+}
+
+// ─── Count badge ──────────────────────────────────────────────────────────────
+class _CountBadge extends StatelessWidget {
+  final int count;
+  const _CountBadge({required this.count});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      decoration: BoxDecoration(
+        color: _S.primaryDim,
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Text('$count', style: _st(12, FontWeight.w700, _S.primary)),
+    );
+  }
+}
+
+// ─── New event button ─────────────────────────────────────────────────────────
+class _NewEventButton extends StatelessWidget {
+  final int                     schoolId;
+  final Future<void> Function()? onSuccess;
+
+  const _NewEventButton({required this.schoolId, this.onSuccess});
+
+  @override
+  Widget build(BuildContext context) {
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      child: GestureDetector(
+        onTap: () async {
+          final added = await showAddEventDialog(context, schoolId: schoolId);
+          if (added) await onSuccess?.call();
+        },
+        child: Container(
+          height: 38,
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          decoration: BoxDecoration(
+            gradient: const LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [_S.primaryDark, _S.primaryLt],
+            ),
+            borderRadius: BorderRadius.circular(10),
+            boxShadow: const [
+              BoxShadow(
+                  color: Color(0x442563EB),
+                  offset: Offset(0, 3), blurRadius: 8),
+            ],
+          ),
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            const Icon(Icons.add_rounded, color: Colors.white, size: 16),
+            const SizedBox(width: 6),
+            Text('school.addEvent'.tr(), style: _st(13, FontWeight.w600, Colors.white)),
+          ]),
+        ),
+      ),
+    );
+  }
+}
+
+// ─── Event search field ───────────────────────────────────────────────────────
+class _EventSearchField extends StatelessWidget {
+  final TextEditingController ctrl;
+  final ValueChanged<String>  onChanged;
+  final VoidCallback          onClear;
+
+  const _EventSearchField({
+    required this.ctrl,
+    required this.onChanged,
+    required this.onClear,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 38,
+      decoration: BoxDecoration(
+        color: _S.fieldBg,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: _S.border),
+      ),
+      child: Row(children: [
+        const SizedBox(width: 10),
+        const Icon(Icons.search_rounded, color: _S.hint, size: 16),
+        const SizedBox(width: 8),
+        Expanded(
+          child: TextField(
+            controller: ctrl,
+            onChanged: onChanged,
+            style: _st(13, FontWeight.normal, _S.ink),
+            decoration: InputDecoration(
+              hintText: 'Buscar por título o lugar…',
+              hintStyle: _st(13, FontWeight.normal, _S.hint),
+              border: InputBorder.none,
+              isDense: true,
+              contentPadding: EdgeInsets.zero,
+            ),
+          ),
+        ),
+        if (ctrl.text.isNotEmpty)
+          GestureDetector(
+            onTap: onClear,
+            child: const Padding(
+              padding: EdgeInsets.all(7),
+              child: Icon(Icons.close_rounded, color: _S.hint, size: 14),
+            ),
+          )
+        else
+          const SizedBox(width: 10),
+      ]),
+    );
+  }
+}
+
+// ─── Event card ───────────────────────────────────────────────────────────────
+class _EventCard extends StatefulWidget {
+  final Event         event;
+  final int           index;
+  final VoidCallback? onUpdated;
+
+  const _EventCard({required this.event, required this.index, this.onUpdated});
+
+  @override
+  State<_EventCard> createState() => _EventCardState();
+}
+
+class _EventCardState extends State<_EventCard> {
+  bool                     _expanded       = false;
+  bool                     _loadingDetails = false;
+  bool                     _detailsLoaded  = false;
+  List<EventPrice>         _prices         = [];
+  List<EventParticipation> _participations = [];
+  String?                  _detailsErr;
+
+  String _fmtDate(String iso) {
+    try {
+      final dt = DateTime.parse(iso).toLocal();
+      const days   = ['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'];
+      const months = ['ene','feb','mar','abr','may','jun',
+                      'jul','ago','sep','oct','nov','dic'];
+      return '${days[dt.weekday - 1]}, ${dt.day} ${months[dt.month - 1]} · '
+          '${dt.hour.toString().padLeft(2, '0')}:'
+          '${dt.minute.toString().padLeft(2, '0')}';
+    } catch (_) { return iso; }
+  }
+
+  String _initials(String name) {
+    final parts = name.trim().split(' ').where((p) => p.isNotEmpty).toList();
+    if (parts.isEmpty) return '?';
+    if (parts.length == 1) return parts[0][0].toUpperCase();
+    return '${parts[0][0]}${parts[1][0]}'.toUpperCase();
+  }
+
+  Future<void> _loadDetails() async {
+    if (_detailsLoaded || _loadingDetails) return;
+    setState(() { _loadingDetails = true; _detailsErr = null; });
+    try {
+      final results = await Future.wait([
+        EventService.getEventPrices(widget.event.id),
+        EventService.getParticipations(widget.event.id),
+      ]);
+      if (!mounted) return;
+      setState(() {
+        _prices         = results[0] as List<EventPrice>;
+        _participations = results[1] as List<EventParticipation>;
+        _loadingDetails = false;
+        _detailsLoaded  = true;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() { _loadingDetails = false; _detailsErr = 'Error al cargar detalles'; });
+    }
+  }
+
+  void _toggleExpanded() {
+    setState(() => _expanded = !_expanded);
+    if (_expanded) _loadDetails();
+  }
+
+  Future<void> _handleEnroll() async {
+    if (!_detailsLoaded) await _loadDetails();
+    if (!mounted) return;
+    final enrolled = _participations.map((p) => p.studentId).toList();
+    final ok = await showEnrollEventDialog(
+      context,
+      eventId:            widget.event.id,
+      schoolId:           widget.event.schoolId,
+      alreadyEnrolledIds: enrolled,
+    );
+    if (!mounted) return;
+    if (ok) {
+      _detailsLoaded = false;
+      await _loadDetails();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(_successSnack('Inscripción realizada'));
+    }
+  }
+
+  Future<void> _handleEdit() async {
+    final ok = await showEditEventDialog(context, event: widget.event);
+    if (!mounted) return;
+    if (ok) {
+      ScaffoldMessenger.of(context).showSnackBar(_successSnack('Evento actualizado'));
+      widget.onUpdated?.call();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: _S.surface,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: _S.border),
+        boxShadow: const [
+          BoxShadow(color: Color(0x0A1E293B), offset: Offset(0, 4), blurRadius: 12),
+        ],
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _buildHeader(),
+          _buildBody(),
+        ],
+      ),
+    );
+  }
+
+  // ── Header ──────────────────────────────────────────────────────────────────
+  Widget _buildHeader() {
+    return SizedBox(
+      height: 130,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          // Gradient background
+          Container(
+            decoration: const BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [Color(0xFF0F172A), Color(0xFF1E3A8A), Color(0xFF2563EB)],
+              ),
+            ),
+          ),
+          // Content column (leaves room for edit btn)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(14, 12, 52, 14),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Text('Evento',
+                      style: _st(11, FontWeight.w700, Colors.white)),
+                ),
+                const Spacer(),
+                Text(
+                  widget.event.title,
+                  style: _st(20, FontWeight.w800, Colors.white),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+            ),
+          ),
+          // Edit button (top-right)
+          Positioned(
+            top: 8, right: 8,
+            child: MouseRegion(
+              cursor: SystemMouseCursors.click,
+              child: GestureDetector(
+                onTap: _handleEdit,
+                child: Container(
+                  width: 32, height: 32,
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.2),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  alignment: Alignment.center,
+                  child: const Icon(Icons.edit_outlined,
+                      color: Colors.white, size: 15),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ── Body ────────────────────────────────────────────────────────────────────
+  Widget _buildBody() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _EventInfoRow(
+            icon: Icons.calendar_today_rounded,
+            text: _fmtDate(widget.event.startDate),
+          ),
+          const SizedBox(height: 4),
+          _EventInfoRow(
+            icon: Icons.location_on_outlined,
+            text: widget.event.venue.isNotEmpty ? widget.event.venue : '—',
+          ),
+          const SizedBox(height: 10),
+          // Avatars + count + Apuntarse
+          Row(children: [
+            _buildAvatarStack(),
+            const SizedBox(width: 8),
+            Text(
+              _detailsLoaded
+                  ? (_participations.isEmpty
+                      ? 'Sé el primero'
+                      : '${_participations.length} inscritos')
+                  : '${widget.event.maxCapacity} plazas',
+              style: _st(12, FontWeight.normal, _S.muted),
+            ),
+            const Spacer(),
+            MouseRegion(
+              cursor: SystemMouseCursors.click,
+              child: GestureDetector(
+                onTap: _handleEnroll,
+                child: Container(
+                  height: 36,
+                  padding: const EdgeInsets.symmetric(horizontal: 14),
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                      begin: Alignment.topLeft, end: Alignment.bottomRight,
+                      colors: [Color(0xFF7C3AED), Color(0xFF9333EA)],
+                    ),
+                    borderRadius: BorderRadius.circular(18),
+                  ),
+                  alignment: Alignment.center,
+                  child: Text('school.joinBtn'.tr(),
+                      style: _st(12, FontWeight.w600, Colors.white)),
+                ),
+              ),
+            ),
+          ]),
+          const SizedBox(height: 8),
+          const Divider(color: _S.border, height: 1),
+          const SizedBox(height: 8),
+          // Expand toggle
+          GestureDetector(
+            onTap: _toggleExpanded,
+            behavior: HitTestBehavior.opaque,
+            child: Row(children: [
+              Icon(
+                _expanded
+                    ? Icons.expand_less_rounded
+                    : Icons.expand_more_rounded,
+                size: 16, color: _S.hint,
+              ),
+              const SizedBox(width: 4),
+              Text('school.eventDetailsToggle'.tr(),
+                  style: _st(13, FontWeight.w600, _S.primary)),
+              const Spacer(),
+              if (_loadingDetails)
+                const SizedBox(
+                  width: 12, height: 12,
+                  child: CircularProgressIndicator(
+                      color: _S.primary, strokeWidth: 2),
+                ),
+            ]),
+          ),
+          // Expandable details
+          AnimatedSize(
+            duration: const Duration(milliseconds: 250),
+            curve: Curves.easeInOut,
+            child: _expanded ? _buildDetails() : const SizedBox.shrink(),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildAvatarStack() {
+    if (!_detailsLoaded || _participations.isEmpty) {
+      return Container(
+        width: 28, height: 28,
+        decoration: BoxDecoration(
+          color: _S.fieldBg, shape: BoxShape.circle,
+          border: Border.all(color: _S.border),
+        ),
+        child: const Icon(Icons.people_outline_rounded, size: 14, color: _S.hint),
+      );
+    }
+    final shown  = _participations.take(3).toList();
+    final totalW = 28.0 + (shown.length - 1) * 18.0;
+    return SizedBox(
+      width: totalW, height: 28,
+      child: Stack(
+        children: [
+          for (var i = 0; i < shown.length; i++)
+            Positioned(
+              left: i * 18.0,
+              child: Container(
+                width: 28, height: 28,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: _S.avBg(i),
+                  border: Border.all(color: Colors.white, width: 1.5),
+                ),
+                alignment: Alignment.center,
+                child: Text(
+                  _initials(shown[i].studentName),
+                  style: _st(9, FontWeight.w700, _S.avTxt(i)),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDetails() {
+    if (_detailsErr != null) {
+      return Padding(
+        padding: const EdgeInsets.only(top: 10),
+        child: Text(_detailsErr!,
+            style: _st(12, FontWeight.normal, _S.errorRed)),
+      );
+    }
+    if (!_detailsLoaded) return const SizedBox.shrink();
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text('school.pricesLabel'.tr(), style: _st(11, FontWeight.w700, _S.hint)),
+          const SizedBox(height: 6),
+          if (_prices.isEmpty)
+            Text('school.noPrices'.tr(),
+                style: _st(12, FontWeight.normal, _S.hint))
+          else
+            Wrap(
+              spacing: 6, runSpacing: 6,
+              children: _prices.map((p) => Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(
+                  color: _S.primaryDim,
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Text(
+                  '${p.type} · €${p.amount.toStringAsFixed(2)}',
+                  style: _st(11, FontWeight.w600, _S.primary),
+                ),
+              )).toList(),
+            ),
+          const SizedBox(height: 10),
+          Text(
+            '${'school.participantsLabel'.tr()} (${_participations.length}/${widget.event.maxCapacity})',
+            style: _st(11, FontWeight.w700, _S.hint),
+          ),
+          const SizedBox(height: 6),
+          if (_participations.isEmpty)
+            Text('school.noEnrolled'.tr(), style: _st(12, FontWeight.normal, _S.hint))
+          else ...[
+            for (var i = 0; i < _participations.take(5).length; i++)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 6),
+                child: Row(children: [
+                  Container(
+                    width: 28, height: 28,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle, color: _S.avBg(i),
+                    ),
+                    alignment: Alignment.center,
+                    child: Text(_initials(_participations[i].studentName),
+                        style: _st(9, FontWeight.w700, _S.avTxt(i))),
+                  ),
+                  const SizedBox(width: 8),
+                  Flexible(
+                    child: Text(_participations[i].studentName,
+                        style: _st(12, FontWeight.w500, _S.ink),
+                        overflow: TextOverflow.ellipsis),
+                  ),
+                  const SizedBox(width: 6),
+                  _PaymentBadge(status: _participations[i].paymentStatus),
+                ]),
+              ),
+            if (_participations.length > 5)
+              Text('+${_participations.length - 5} más',
+                  style: _st(11, FontWeight.normal, _S.hint)),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+// ─── Payment badge ────────────────────────────────────────────────────────────
+class _PaymentBadge extends StatelessWidget {
+  final String status;
+  const _PaymentBadge({required this.status});
+
+  @override
+  Widget build(BuildContext context) {
+    final (bg, fg, label) = switch (status.toUpperCase()) {
+      'PAGADO'    => (_S.paidBg,               _S.paidText,             'school.paidLabel'.tr()),
+      'PENDIENTE' => (const Color(0xFFFFF7ED), const Color(0xFFD97706), 'school.pendingLabel'.tr()),
+      _           => (_S.fieldBg,              _S.muted,                status),
+    };
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+      decoration: BoxDecoration(
+        color: bg, borderRadius: BorderRadius.circular(6),
+      ),
+      child: Text(label, style: _st(10, FontWeight.w600, fg)),
+    );
+  }
+}
+
+// ─── Event info row ───────────────────────────────────────────────────────────
+class _EventInfoRow extends StatelessWidget {
+  final IconData icon;
+  final String   text;
+
+  const _EventInfoRow({required this.icon, required this.text});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(children: [
+      Icon(icon, size: 14, color: _S.hint),
+      const SizedBox(width: 6),
+      Expanded(
+        child: Text(text,
+            style: _st(13, FontWeight.normal, _S.muted),
+            overflow: TextOverflow.ellipsis),
+      ),
+    ]);
   }
 }
 
@@ -1886,14 +2815,14 @@ class _GroupsTabState extends State<_GroupsTab> {
           ),
           const SizedBox(height: 16),
           Text(
-            _groups.isEmpty ? 'Aún no hay grupos' : 'Sin resultados',
+            _groups.isEmpty ? 'school.noGroups'.tr() : 'school.noResults'.tr(),
             style: _st(16, FontWeight.w600, _S.ink),
           ),
           const SizedBox(height: 6),
           Text(
             _groups.isEmpty
-                ? 'Crea el primero con el botón +'
-                : 'Prueba otro término de búsqueda',
+                ? 'school.noGroupsDesc'.tr()
+                : 'school.noResultsDesc'.tr(),
             textAlign: TextAlign.center,
             style: _st(13, FontWeight.normal, _S.hint),
           ),
@@ -1904,25 +2833,33 @@ class _GroupsTabState extends State<_GroupsTab> {
     return LayoutBuilder(builder: (_, bc) {
       final isMobile = bc.maxWidth < 600;
       if (isMobile) {
-        return ListView.separated(
-          physics: const BouncingScrollPhysics(),
-          itemCount: list.length,
-          separatorBuilder: (_, __) => const SizedBox(height: 12),
-          itemBuilder: (_, i) => _GroupCard(group: list[i], index: i, onUpdated: _loadGroups),
+        return RefreshIndicator(
+          color: _S.primary,
+          onRefresh: _loadGroups,
+          child: ListView.separated(
+            physics: const AlwaysScrollableScrollPhysics(),
+            itemCount: list.length,
+            separatorBuilder: (_, __) => const SizedBox(height: 12),
+            itemBuilder: (_, i) => _GroupCard(group: list[i], index: i, onUpdated: _loadGroups),
+          ),
         );
       }
       final cols    = bc.maxWidth >= 900 ? 3 : 2;
       final spacing = cols == 3 ? 16.0 : 12.0;
       final cardW   = (bc.maxWidth - spacing * (cols - 1)) / cols;
-      return SingleChildScrollView(
-        physics: const BouncingScrollPhysics(),
-        child: Wrap(
-          spacing: spacing,
-          runSpacing: spacing,
-          children: list.asMap().entries.map((e) => SizedBox(
-            width: cardW,
-            child: _GroupCard(group: e.value, index: e.key, onUpdated: _loadGroups),
-          )).toList(),
+      return RefreshIndicator(
+        color: _S.primary,
+        onRefresh: _loadGroups,
+        child: SingleChildScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          child: Wrap(
+            spacing: spacing,
+            runSpacing: spacing,
+            children: list.asMap().entries.map((e) => SizedBox(
+              width: cardW,
+              child: _GroupCard(group: e.value, index: e.key, onUpdated: _loadGroups),
+            )).toList(),
+          ),
         ),
       );
     });
@@ -1967,7 +2904,7 @@ class _NewGroupButton extends StatelessWidget {
             children: [
               const Icon(Icons.add_rounded, color: Colors.white, size: 16),
               const SizedBox(width: 6),
-              Text('Nuevo Grupo',
+              Text('school.addGroup'.tr(),
                   style: _st(13, FontWeight.w600, Colors.white)),
             ],
           ),
@@ -2051,157 +2988,548 @@ _LevelStyle _levelStyle(String level) => switch (level.toLowerCase()) {
       _ => (bg: _S.fieldBg, text: _S.muted),
     };
 
+// ─── Dance-style gradient helper ─────────────────────────────────────────────
+List<Color> _groupGradient(String danceStyle) {
+  final s = danceStyle.toLowerCase();
+  if (s.contains('salsa') || s.contains('bachata') || s.contains('merengue')) {
+    return const [Color(0xFF7C3AED), Color(0xFF9333EA)];
+  }
+  if (s.contains('tango') || s.contains('vals')) {
+    return const [Color(0xFF0F172A), Color(0xFF1E3A8A)];
+  }
+  if (s.contains('hip') || s.contains('urban')) {
+    return const [Color(0xFF1A1A2E), Color(0xFF16213E)];
+  }
+  return const [Color(0xFF1D4ED8), Color(0xFF3B82F6)];
+}
+
 // ─── Group card ───────────────────────────────────────────────────────────────
-class _GroupCard extends StatelessWidget {
-  final Group        group;
-  final int          index;
+class _GroupCard extends StatefulWidget {
+  final Group         group;
+  final int           index;
   final VoidCallback? onUpdated;
 
   const _GroupCard({required this.group, required this.index, this.onUpdated});
 
   @override
+  State<_GroupCard> createState() => _GroupCardState();
+}
+
+class _GroupCardState extends State<_GroupCard> {
+  bool                    _expanded            = false;
+  bool                    _loadingEnrollments  = false;
+  bool                    _enrollmentsLoaded   = false;
+  bool                    _showAllEnrollments  = false;
+  List<GroupEnrollment>   _enrollments         = [];
+  String?                 _enrollmentsErr;
+
+  String _initials(String name) {
+    final parts = name.trim().split(' ').where((p) => p.isNotEmpty).toList();
+    if (parts.isEmpty) return '?';
+    if (parts.length == 1) return parts[0][0].toUpperCase();
+    return '${parts[0][0]}${parts[1][0]}'.toUpperCase();
+  }
+
+  Future<void> _loadEnrollments() async {
+    if (_enrollmentsLoaded || _loadingEnrollments) return;
+    setState(() { _loadingEnrollments = true; _enrollmentsErr = null; });
+    try {
+      final list = await GroupService.getEnrollments(widget.group.id);
+      if (!mounted) return;
+      setState(() {
+        _enrollments        = list;
+        _loadingEnrollments = false;
+        _enrollmentsLoaded  = true;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _loadingEnrollments = false;
+        _enrollmentsErr     = 'Error al cargar inscritos';
+      });
+    }
+  }
+
+  void _toggleExpanded() {
+    setState(() => _expanded = !_expanded);
+    if (_expanded) _loadEnrollments();
+  }
+
+  Future<void> _handleEdit() async {
+    final updated = await showEditGroupDialog(context, group: widget.group);
+    if (!mounted) return;
+    if (updated) {
+      ScaffoldMessenger.of(context).showSnackBar(
+          _successSnack('Grupo actualizado con éxito'));
+      widget.onUpdated?.call();
+    }
+  }
+
+  Future<void> _handleEnroll() async {
+    if (!_enrollmentsLoaded) await _loadEnrollments();
+    if (!mounted) return;
+    final enrolled = _enrollments.map((e) => e.studentId).toList();
+    final ok = await showEnrollGroupDialog(
+      context,
+      groupId:               widget.group.id,
+      schoolId:              widget.group.schoolId,
+      alreadyEnrolledIds:    enrolled,
+      maxCapacity:           widget.group.maxCapacity,
+      currentEnrollmentCount: _enrollments.where((e) => e.active).length,
+    );
+    if (!mounted) return;
+    if (ok) {
+      _enrollmentsLoaded  = false;
+      _showAllEnrollments = false;
+      await _loadEnrollments();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(_successSnack('Alumno inscrito'));
+    }
+  }
+
+  Future<void> _handleWithdraw(GroupEnrollment enrollment) async {
+    try {
+      await GroupService.withdrawEnrollment(enrollment.id);
+      if (!mounted) return;
+      _enrollmentsLoaded  = false;
+      _showAllEnrollments = false;
+      await _loadEnrollments();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(_successSnack('Alumno dado de baja'));
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        _errorSnack(e is GroupException ? e.message : 'Error al dar de baja'),
+      );
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final ls = _levelStyle(group.level);
     return Container(
-      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: _S.surface,
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(16),
         border: Border.all(color: _S.border),
         boxShadow: const [
           BoxShadow(
-              color: Color(0x081E293B), offset: Offset(0, 2), blurRadius: 8),
+              color: Color(0x0A1E293B), offset: Offset(0, 4), blurRadius: 12),
         ],
       ),
+      clipBehavior: Clip.antiAlias,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
-          // ── Header: icono + nombre + acciones ─────────────────────────────
-          Row(children: [
-            Container(
-              width: 38, height: 38,
-              decoration: BoxDecoration(
-                color: _S.avBg(index),
-                borderRadius: BorderRadius.circular(10),
+          _buildHeader(),
+          _buildBody(),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildHeader() {
+    final ls      = _levelStyle(widget.group.level);
+    final colors  = _groupGradient(widget.group.danceStyle);
+
+    return SizedBox(
+      height: 110,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          Container(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: colors,
               ),
-              alignment: Alignment.center,
-              child: Icon(Icons.queue_music_rounded,
-                  color: _S.avTxt(index), size: 18),
             ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Text(group.name,
-                  style: _st(15, FontWeight.w700, _S.ink),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(14, 12, 52, 12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Text(
+                      widget.group.danceStyle.isNotEmpty
+                          ? widget.group.danceStyle
+                          : 'Grupo',
+                      style: _st(11, FontWeight.w700, Colors.white),
+                    ),
+                  ),
+                  const Spacer(),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: ls.bg,
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Text(widget.group.level,
+                        style: _st(11, FontWeight.w700, ls.text)),
+                  ),
+                ]),
+                const Spacer(),
+                Text(
+                  widget.group.name,
+                  style: _st(18, FontWeight.w800, Colors.white),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+            ),
+          ),
+          Positioned(
+            top: 8, right: 8,
+            child: MouseRegion(
+              cursor: SystemMouseCursors.click,
+              child: GestureDetector(
+                onTap: _handleEdit,
+                child: Container(
+                  width: 32, height: 32,
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.2),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  alignment: Alignment.center,
+                  child: const Icon(Icons.edit_outlined,
+                      color: Colors.white, size: 15),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildBody() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Schedule + count
+          Row(children: [
+            const Icon(Icons.schedule_rounded, size: 14, color: _S.hint),
+            const SizedBox(width: 6),
+            Flexible(
+              child: Text(widget.group.schedule,
+                  style: _st(12, FontWeight.normal, _S.muted),
                   overflow: TextOverflow.ellipsis),
             ),
             const SizedBox(width: 8),
-            _ActionBtn(
-              icon: Icons.edit_outlined,
-              color: _S.primary,
-              bg: _S.primaryDim,
-              tooltip: 'Editar',
-              onTap: () async {
-                final updated =
-                    await showEditGroupDialog(context, group: group);
-                if (updated && context.mounted) {
-                  ScaffoldMessenger.of(context)
-                    ..clearSnackBars()
-                    ..showSnackBar(SnackBar(
-                      content: Row(children: [
-                        const Icon(Icons.check_circle_outline_rounded,
-                            color: Colors.white, size: 18),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: Text('Grupo actualizado con éxito',
-                              style: GoogleFonts.outfit(
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w500,
-                                  color: Colors.white)),
-                        ),
-                      ]),
-                      backgroundColor: const Color(0xFF22C55E),
-                      behavior: SnackBarBehavior.floating,
-                      shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12)),
-                      margin: const EdgeInsets.fromLTRB(16, 0, 16, 24),
-                      duration: const Duration(seconds: 3),
-                    ));
-                  onUpdated?.call();
-                }
-              },
-            ),
-            const SizedBox(width: 6),
-            _ActionBtn(
-              icon: Icons.delete_outline_rounded,
-              color: const Color(0xFFDC2626),
-              bg: const Color(0xFFFEE2E2),
-              tooltip: 'Eliminar',
-              onTap: () {},
+            Text(
+              _enrollmentsLoaded
+                  ? '${_enrollments.length}/${widget.group.maxCapacity}'
+                  : '${widget.group.maxCapacity} plazas',
+              style: _st(12, FontWeight.w600, _S.muted),
             ),
           ]),
-          const SizedBox(height: 10),
-
-          // ── Badges: estilo de baile + nivel ───────────────────────────────
-          Wrap(spacing: 6, runSpacing: 6, children: [
-            _GroupBadge(
-                text: group.danceStyle, bg: _S.fieldBg, color: _S.muted,
-                bordered: true),
-            _GroupBadge(text: group.level, bg: ls.bg, color: ls.text),
-          ]),
-          const SizedBox(height: 10),
-
-          // ── Horario ───────────────────────────────────────────────────────
-          Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            const Padding(
-              padding: EdgeInsets.only(top: 1),
-              child: Icon(Icons.schedule_rounded, size: 14, color: _S.hint),
-            ),
-            const SizedBox(width: 6),
-            Expanded(
-              child: Text(group.schedule,
-                  style: _st(12, FontWeight.normal, _S.muted),
-                  maxLines: 2, overflow: TextOverflow.ellipsis),
-            ),
-          ]),
-          const SizedBox(height: 6),
-
-          // ── Capacidad ─────────────────────────────────────────────────────
+          const SizedBox(height: 8),
+          // Avatars + count + Inscribir
           Row(children: [
-            const Icon(Icons.people_outline_rounded, size: 14, color: _S.hint),
-            const SizedBox(width: 6),
-            Text('Capacidad: ${group.maxCapacity}',
-                style: _st(12, FontWeight.normal, _S.muted)),
+            _buildAvatarStack(),
+            const SizedBox(width: 8),
+            Text(
+              _enrollmentsLoaded
+                  ? (_enrollments.isEmpty
+                      ? 'Sé el primero'
+                      : '${_enrollments.length} inscritos')
+                  : '${widget.group.maxCapacity} plazas',
+              style: _st(12, FontWeight.normal, _S.muted),
+            ),
+            const Spacer(),
+            MouseRegion(
+              cursor: SystemMouseCursors.click,
+              child: GestureDetector(
+                onTap: _handleEnroll,
+                child: Container(
+                  height: 40,
+                  padding: const EdgeInsets.symmetric(horizontal: 18),
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [Color(0xFF16A34A), Color(0xFF22C55E)],
+                    ),
+                    borderRadius: BorderRadius.circular(20),
+                    boxShadow: const [
+                      BoxShadow(color: Color(0x3316A34A),
+                          offset: Offset(0, 3), blurRadius: 8),
+                    ],
+                  ),
+                  alignment: Alignment.center,
+                  child: Text('school.enrollBtn'.tr(),
+                      style: _st(13, FontWeight.w600, Colors.white)),
+                ),
+              ),
+            ),
           ]),
+          const SizedBox(height: 8),
+          const Divider(color: _S.border, height: 1),
+          const SizedBox(height: 6),
+          // Expand toggle
+          GestureDetector(
+            onTap: _toggleExpanded,
+            behavior: HitTestBehavior.opaque,
+            child: Row(children: [
+              Icon(
+                _expanded
+                    ? Icons.expand_less_rounded
+                    : Icons.expand_more_rounded,
+                size: 16, color: _S.hint,
+              ),
+              const SizedBox(width: 4),
+              Text('school.enrolledStudents'.tr(),
+                  style: _st(13, FontWeight.w600, _S.primary)),
+              const Spacer(),
+              if (_loadingEnrollments)
+                const SizedBox(
+                  width: 12, height: 12,
+                  child: CircularProgressIndicator(
+                      color: _S.primary, strokeWidth: 2),
+                ),
+            ]),
+          ),
+          AnimatedSize(
+            duration: const Duration(milliseconds: 250),
+            curve: Curves.easeInOut,
+            child: _expanded ? _buildEnrollmentList() : const SizedBox.shrink(),
+          ),
+          const SizedBox(height: 8),
+          // Delete button (prominente)
+          Row(children: [
+            const Spacer(),
+            MouseRegion(
+              cursor: SystemMouseCursors.click,
+              child: GestureDetector(
+                onTap: () async {
+                  final ok = await _confirmDeleteGroup(context, widget.group.name);
+                  if (!mounted) return;
+                  if (!ok) return;
+                  try {
+                    await GroupService.deleteGroup(widget.group.id);
+                    if (!mounted) return;
+                    ScaffoldMessenger.of(context)
+                        .showSnackBar(_successSnack('Grupo eliminado'));
+                    widget.onUpdated?.call();
+                  } catch (e) {
+                    if (!mounted) return;
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      _errorSnack(e is GroupException
+                          ? e.message
+                          : 'Error al eliminar'),
+                    );
+                  }
+                },
+                child: Container(
+                  height: 34,
+                  padding: const EdgeInsets.symmetric(horizontal: 14),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFEF2F2),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(
+                        color: const Color(0xFFDC2626).withValues(alpha: 0.3)),
+                  ),
+                  alignment: Alignment.center,
+                  child: Row(mainAxisSize: MainAxisSize.min, children: [
+                    const Icon(Icons.delete_outline_rounded,
+                        size: 14, color: Color(0xFFDC2626)),
+                    const SizedBox(width: 5),
+                    Text('Eliminar',
+                        style: _st(12, FontWeight.w600,
+                            const Color(0xFFDC2626))),
+                  ]),
+                ),
+              ),
+            ),
+          ]),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildAvatarStack() {
+    if (!_enrollmentsLoaded || _enrollments.isEmpty) {
+      return Container(
+        width: 28, height: 28,
+        decoration: BoxDecoration(
+          color: _S.fieldBg, shape: BoxShape.circle,
+          border: Border.all(color: _S.border),
+        ),
+        child: const Icon(Icons.people_outline_rounded,
+            size: 14, color: _S.hint),
+      );
+    }
+    final shown  = _enrollments.take(3).toList();
+    final totalW = 28.0 + (shown.length - 1) * 18.0;
+    return SizedBox(
+      width: totalW, height: 28,
+      child: Stack(
+        children: [
+          for (var i = 0; i < shown.length; i++)
+            Positioned(
+              left: i * 18.0,
+              child: Container(
+                width: 28, height: 28,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: _S.avBg(i),
+                  border: Border.all(color: Colors.white, width: 1.5),
+                ),
+                alignment: Alignment.center,
+                child: Text(
+                  _initials(shown[i].studentName),
+                  style: _st(9, FontWeight.w700, _S.avTxt(i)),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildEnrollmentList() {
+    if (_enrollmentsErr != null) {
+      return Padding(
+        padding: const EdgeInsets.only(top: 8),
+        child: Text(_enrollmentsErr!,
+            style: _st(12, FontWeight.normal, _S.errorRed)),
+      );
+    }
+    if (!_enrollmentsLoaded) return const SizedBox.shrink();
+    if (_enrollments.isEmpty) {
+      return Padding(
+        padding: const EdgeInsets.only(top: 8),
+        child: Text('school.noEnrolled'.tr(),
+            style: _st(12, FontWeight.normal, _S.hint)),
+      );
+    }
+
+    // Active first, then inactive
+    final sorted = [..._enrollments]
+      ..sort((a, b) {
+        if (a.active == b.active) return 0;
+        return a.active ? -1 : 1;
+      });
+
+    final total      = sorted.length;
+    final showCount  = _showAllEnrollments ? total : total.clamp(0, 5);
+    final visible    = sorted.take(showCount).toList();
+    final remaining  = total - showCount;
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          for (var i = 0; i < visible.length; i++)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 6),
+              child: Row(children: [
+                Container(
+                  width: 28, height: 28,
+                  decoration: BoxDecoration(
+                      shape: BoxShape.circle, color: _S.avBg(i)),
+                  alignment: Alignment.center,
+                  child: Text(_initials(visible[i].studentName),
+                      style: _st(9, FontWeight.w700, _S.avTxt(i))),
+                ),
+                const SizedBox(width: 8),
+                Flexible(
+                  child: Text(visible[i].studentName,
+                      style: _st(12, FontWeight.w500, _S.ink),
+                      overflow: TextOverflow.ellipsis),
+                ),
+                const SizedBox(width: 6),
+                _ActiveBadge(active: visible[i].active),
+                if (visible[i].active) ...[
+                  const SizedBox(width: 4),
+                  Tooltip(
+                    message: 'Dar de baja',
+                    child: GestureDetector(
+                      onTap: () => _handleWithdraw(visible[i]),
+                      child: Container(
+                        width: 24, height: 24,
+                        decoration: const BoxDecoration(
+                          color: Color(0xFFFEF2F2),
+                          shape: BoxShape.circle,
+                        ),
+                        alignment: Alignment.center,
+                        child: const Icon(Icons.logout_rounded,
+                            size: 12, color: Color(0xFFDC2626)),
+                      ),
+                    ),
+                  ),
+                ],
+              ]),
+            ),
+          if (remaining > 0)
+            GestureDetector(
+              onTap: () => setState(() => _showAllEnrollments = true),
+              child: Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Row(mainAxisSize: MainAxisSize.min, children: [
+                  Text('Ver $remaining más',
+                      style: _st(12, FontWeight.w600, _S.primary)),
+                  const SizedBox(width: 4),
+                  const Icon(Icons.arrow_forward_rounded,
+                      size: 12, color: _S.primary),
+                ]),
+              ),
+            )
+          else if (_showAllEnrollments && total > 5)
+            GestureDetector(
+              onTap: () => setState(() => _showAllEnrollments = false),
+              child: Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Row(mainAxisSize: MainAxisSize.min, children: [
+                  Text('Ver menos',
+                      style: _st(12, FontWeight.w600, _S.muted)),
+                  const SizedBox(width: 4),
+                  const Icon(Icons.keyboard_arrow_up_rounded,
+                      size: 14, color: _S.muted),
+                ]),
+              ),
+            ),
         ],
       ),
     );
   }
 }
 
-class _GroupBadge extends StatelessWidget {
-  final String text;
-  final Color  bg;
-  final Color  color;
-  final bool   bordered;
-
-  const _GroupBadge({
-    required this.text,
-    required this.bg,
-    required this.color,
-    this.bordered = false,
-  });
+// ─── Active badge ─────────────────────────────────────────────────────────────
+class _ActiveBadge extends StatelessWidget {
+  final bool active;
+  const _ActiveBadge({required this.active});
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
       decoration: BoxDecoration(
-        color: bg,
-        borderRadius: BorderRadius.circular(100),
-        border: bordered ? Border.all(color: _S.border) : null,
+        color: active ? _S.paidBg : _S.unpaidBg,
+        borderRadius: BorderRadius.circular(6),
       ),
-      child: Text(text, style: _st(11, FontWeight.w600, color)),
+      child: Text(
+        active ? 'school.activeLabel'.tr() : 'school.inactiveLabel'.tr(),
+        style: _st(10, FontWeight.w600,
+            active ? _S.paidText : _S.unpaidText),
+      ),
     );
   }
 }

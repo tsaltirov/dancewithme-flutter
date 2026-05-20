@@ -192,4 +192,169 @@ class GroupService {
     final body = jsonDecode(res.body) as Map<String, dynamic>;
     return Group.fromJson(body['data'] as Map<String, dynamic>);
   }
+
+  // ── DELETE /api/v1/groups/{id} ───────────────────────────────────────────
+  static Future<void> deleteGroup(int id) async {
+    final token = await AuthService.getAccessToken();
+    if (token == null) throw const GroupException('No authentication token');
+
+    final http.Response res;
+    try {
+      res = await http
+          .delete(
+            Uri.parse('$_baseUrl/api/v1/groups/$id'),
+            headers: {'Authorization': 'Bearer $token'},
+          )
+          .timeout(const Duration(seconds: 15));
+    } on TimeoutException {
+      throw const GroupException('Request timed out');
+    } on SocketException {
+      throw const GroupException('No internet connection');
+    }
+
+    if (kDebugMode) {
+      debugPrint('[GroupService] DELETE /api/v1/groups/$id → ${res.statusCode}');
+    }
+
+    if (res.statusCode != 200 && res.statusCode != 204) {
+      throw GroupException('Server error ${res.statusCode}');
+    }
+  }
+
+  // ── GET /api/v1/enrollments/group/{groupId} ──────────────────────────────
+  static Future<List<GroupEnrollment>> getEnrollments(int groupId) async {
+    final token = await AuthService.getAccessToken();
+    if (token == null) throw const GroupException('No authentication token');
+
+    final http.Response res;
+    try {
+      res = await http.get(
+        Uri.parse('$_baseUrl/api/v1/enrollments/group/$groupId'),
+        headers: {'Authorization': 'Bearer $token'},
+      ).timeout(const Duration(seconds: 15));
+    } on TimeoutException {
+      throw const GroupException('Request timed out');
+    } on SocketException {
+      throw const GroupException('No internet connection');
+    }
+
+    if (kDebugMode) {
+      debugPrint('[GroupService] GET /api/v1/enrollments/group/$groupId → ${res.statusCode}');
+    }
+
+    if (res.statusCode != 200) {
+      throw GroupException('Server error ${res.statusCode}');
+    }
+
+    final body = jsonDecode(res.body) as Map<String, dynamic>;
+    final data = body['data'] as List<dynamic>? ?? [];
+    return data
+        .map((e) => GroupEnrollment.fromJson(e as Map<String, dynamic>))
+        .toList();
+  }
+
+  // ── POST /api/v1/enrollments ─────────────────────────────────────────────
+  static Future<GroupEnrollment> addEnrollment({
+    required int    studentId,
+    required int    groupId,
+    String          notes = '',
+  }) async {
+    final token = await AuthService.getAccessToken();
+    if (token == null) throw const GroupException('No authentication token');
+
+    final http.Response res;
+    try {
+      res = await http
+          .post(
+            Uri.parse('$_baseUrl/api/v1/enrollments'),
+            headers: {
+              'Content-Type': 'application/json; charset=UTF-8',
+              'Authorization': 'Bearer $token',
+            },
+            body: jsonEncode({
+              'studentId': studentId,
+              'groupId':   groupId,
+              'notes':     notes,
+            }),
+          )
+          .timeout(const Duration(seconds: 15));
+    } on TimeoutException {
+      throw const GroupException('Request timed out');
+    } on SocketException {
+      throw const GroupException('No internet connection');
+    }
+
+    if (kDebugMode) {
+      debugPrint('[GroupService] POST /api/v1/enrollments → ${res.statusCode}');
+    }
+
+    if (res.statusCode != 200 && res.statusCode != 201) {
+      throw GroupException('Server error ${res.statusCode}');
+    }
+
+    final body = jsonDecode(res.body) as Map<String, dynamic>;
+    return GroupEnrollment.fromJson(body['data'] as Map<String, dynamic>);
+  }
+
+  // ── PATCH /api/v1/enrollments/{id}/withdraw ──────────────────────────────
+  static Future<void> withdrawEnrollment(int enrollmentId) async {
+    final token = await AuthService.getAccessToken();
+    if (token == null) throw const GroupException('No authentication token');
+
+    final http.Response res;
+    try {
+      res = await http
+          .patch(
+            Uri.parse('$_baseUrl/api/v1/enrollments/$enrollmentId/withdraw'),
+            headers: {'Authorization': 'Bearer $token'},
+          )
+          .timeout(const Duration(seconds: 15));
+    } on TimeoutException {
+      throw const GroupException('Request timed out');
+    } on SocketException {
+      throw const GroupException('No internet connection');
+    }
+
+    if (kDebugMode) {
+      debugPrint('[GroupService] PATCH /api/v1/enrollments/$enrollmentId/withdraw → ${res.statusCode}');
+    }
+
+    if (res.statusCode != 200 && res.statusCode != 204) {
+      throw GroupException('Server error ${res.statusCode}');
+    }
+  }
+}
+
+// ─── GroupEnrollment model ────────────────────────────────────────────────────
+class GroupEnrollment {
+  final int    id;
+  final int    studentId;
+  final String studentName;
+  final int    groupId;
+  final String groupName;
+  final String enrollmentDate;
+  final bool   active;
+  final String notes;
+
+  const GroupEnrollment({
+    required this.id,
+    required this.studentId,
+    required this.studentName,
+    required this.groupId,
+    required this.groupName,
+    required this.enrollmentDate,
+    required this.active,
+    required this.notes,
+  });
+
+  factory GroupEnrollment.fromJson(Map<String, dynamic> j) => GroupEnrollment(
+        id:             (j['id']         as num).toInt(),
+        studentId:      (j['studentId']  as num?)?.toInt()  ?? 0,
+        studentName:    j['studentName'] as String?         ?? '',
+        groupId:        (j['groupId']    as num?)?.toInt()  ?? 0,
+        groupName:      j['groupName']   as String?         ?? '',
+        enrollmentDate: j['enrollmentDate'] as String?      ?? '',
+        active:         j['active']      as bool?           ?? true,
+        notes:          j['notes']       as String?         ?? '',
+      );
 }
