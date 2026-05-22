@@ -49,6 +49,7 @@ class School {
 class SchoolException implements Exception {
   final String message;
   const SchoolException(this.message);
+  @override String toString() => message;
 }
 
 // ─── SchoolService ────────────────────────────────────────────────────────────

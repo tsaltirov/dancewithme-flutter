@@ -56,4 +56,51 @@ Para añadir una nueva clave de traducción, agrégala en los tres ficheros mant
 
 ---
 
+## Módulos implementados
+
+### Autenticación
+- Login con email/contraseña y JWT
+- Recuperación de contraseña por código OTP (6 dígitos)
+- Restablecimiento de contraseña
+- **Refresh automático de tokens** — `AuthService.getAccessToken()` decodifica el claim `exp` del JWT sin librería de crypto, refresca proactivamente 60 s antes de expirar y serializa las llamadas concurrentes con un `Completer` para que nunca se lancen dos refresh simultáneos.
+
+### Pantalla principal (Home)
+- Listado de academias con estadísticas globales (alumnos, eventos)
+- Layouts diferenciados: móvil · tablet (barra flotante) · web (sidebar fijo)
+- Navegación a la academia con transición SharedAxis
+
+### Gestión de academia (School Screen)
+Pantalla con pestañas que varía su estructura según el breakpoint:
+
+| Pestaña | Descripción |
+|---|---|
+| **Alumnos** | Lista virtual (`SliverList`) con carga en 2 fases: datos inmediatos + estado de pagos en background |
+| **Eventos** | CRUD completo, inscripción de alumnos, gestión de precios, cancelación |
+| **Grupos** | CRUD, inscripción de alumnos, niveles y horarios |
+| **Vestuario** | Catálogo de prendas + asignaciones a eventos (ver más abajo) |
+| **Coreografías** | Placeholder — pendiente |
+| **Alertas** | Placeholder — pendiente |
+
+### Pagos
+- Registro de pagos con método (efectivo, transferencia, tarjeta, domiciliación)-> Solo strings NO es pago real    con pasarela.
+- Filtro por periodo (año/mes) con estado PAGADO / PENDIENTE
+- "Cobro"/Check de pagos pendientes con confirmación.
+
+### Módulo de Vestuario (Wardrobe)
+El módulo más completo. Dos conceptos separados:
+
+**Catálogo vestuario**
+- Lista prendas activas e inactivas del centro.
+- Filtros: Todos / Activos / Inactivos
+- Badge `asignados/total` en cada card con semáforo de color
+- CRUD completo: crear, editar (PUT), activar (PATCH `/activate`), desactivar (DELETE soft)
+- Subida de imagen: galería o **cámara** (en web solo galería, detectado con `kIsWeb`)
+
+**Asignaciones**
+- Asignar traje a alumno inscrito en un evento (bottom sheet 2 pasos: evento → participación)
+- Sección de asignaciones con 2 pestañas: **Entregados** (ENTREGADO / PENDIENTE_DEVOLUCION) y **Devueltos** (DEVUELTO)
+- Devolución con diálogo de confirmación que muestra traje, alumno, evento y observaciones.
+
+---
+
 *Este documento se irá actualizando conforme avance el desarrollo.*

@@ -11,6 +11,7 @@ import 'auth_service.dart';
 class StudentException implements Exception {
   final String message;
   const StudentException(this.message);
+  @override String toString() => message;
 }
 
 // ─── Student model ────────────────────────────────────────────────────────────
@@ -183,6 +184,29 @@ class StudentService {
       final body = jsonDecode(res.body) as Map<String, dynamic>;
       final data = body['data'] as List<dynamic>? ?? [];
       return data.isNotEmpty;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  // ── Check if student has a paid payment for a specific month/year ──────────
+  static Future<bool> isPaidForPeriod(int studentId, int year, int month) async {
+    final token = await AuthService.getAccessToken();
+    if (token == null) return false;
+    try {
+      final res = await http.get(
+        Uri.parse('$_baseUrl/api/v1/payments/student/$studentId'),
+        headers: {'Authorization': 'Bearer $token'},
+      ).timeout(const Duration(seconds: 10));
+      if (res.statusCode != 200) return false;
+      final body = jsonDecode(res.body) as Map<String, dynamic>;
+      final data = body['data'] as List<dynamic>? ?? [];
+      return data.any((p) {
+        final m = p as Map<String, dynamic>;
+        return (m['year'] as num?)?.toInt() == year &&
+               (m['month'] as num?)?.toInt() == month &&
+               (m['status'] as String?)?.toUpperCase() == 'PAGADO';
+      });
     } catch (_) {
       return false;
     }

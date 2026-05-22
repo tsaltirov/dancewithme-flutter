@@ -12,6 +12,7 @@ import 'auth_service.dart';
 class EventException implements Exception {
   final String message;
   const EventException(this.message);
+  @override String toString() => message;
 }
 
 // ─── Event model ──────────────────────────────────────────────────────────────
@@ -308,6 +309,62 @@ class EventService {
         .toList();
   }
 
+  // ── PATCH /api/v1/events/{id}/cancel ─────────────────────────────────────
+  static Future<void> cancelEvent(int id) async {
+    final token = await AuthService.getAccessToken();
+    if (token == null) throw const EventException('No authentication token');
+
+    final http.Response res;
+    try {
+      res = await http
+          .patch(
+            Uri.parse('$_baseUrl/api/v1/events/$id/cancel'),
+            headers: {'Authorization': 'Bearer $token'},
+          )
+          .timeout(const Duration(seconds: 15));
+    } on TimeoutException {
+      throw const EventException('Request timed out');
+    } on SocketException {
+      throw const EventException('No internet connection');
+    }
+
+    if (kDebugMode) {
+      debugPrint('[EventService] PATCH /api/v1/events/$id/cancel → ${res.statusCode}');
+    }
+
+    if (res.statusCode != 200 && res.statusCode != 204) {
+      throw EventException('Server error ${res.statusCode}');
+    }
+  }
+
+  // ── DELETE /api/v1/events/participations/{id} ────────────────────────────
+  static Future<void> removeParticipation(int participationId) async {
+    final token = await AuthService.getAccessToken();
+    if (token == null) throw const EventException('No authentication token');
+
+    final http.Response res;
+    try {
+      res = await http
+          .delete(
+            Uri.parse('$_baseUrl/api/v1/events/participations/$participationId'),
+            headers: {'Authorization': 'Bearer $token'},
+          )
+          .timeout(const Duration(seconds: 15));
+    } on TimeoutException {
+      throw const EventException('Request timed out');
+    } on SocketException {
+      throw const EventException('No internet connection');
+    }
+
+    if (kDebugMode) {
+      debugPrint('[EventService] DELETE /api/v1/events/participations/$participationId → ${res.statusCode}');
+    }
+
+    if (res.statusCode != 200 && res.statusCode != 204) {
+      throw EventException('Server error ${res.statusCode}');
+    }
+  }
+
   // ── POST /api/v1/events/participations ────────────────────────────────────
   static Future<EventParticipation> addParticipation({
     required int eventId,
@@ -438,6 +495,7 @@ class EventParticipation {
   final String registrationDate;
   final String paymentStatus;
   final double paidAmount;
+  final int?   costumeAssignmentId;
 
   const EventParticipation({
     required this.id,
@@ -448,17 +506,19 @@ class EventParticipation {
     required this.registrationDate,
     required this.paymentStatus,
     required this.paidAmount,
+    this.costumeAssignmentId,
   });
 
   factory EventParticipation.fromJson(Map<String, dynamic> j) =>
       EventParticipation(
-        id:               (j['id']         as num).toInt(),
-        eventId:          (j['eventId']    as num?)?.toInt()  ?? 0,
-        eventTitle:       j['eventTitle']  as String?         ?? '',
-        studentId:        (j['studentId']  as num?)?.toInt()  ?? 0,
-        studentName:      j['studentName'] as String?         ?? '',
-        registrationDate: j['registrationDate'] as String?    ?? '',
-        paymentStatus:    j['paymentStatus']    as String?    ?? '',
-        paidAmount:       (j['paidAmount'] as num?)?.toDouble() ?? 0.0,
+        id:                 (j['id']               as num).toInt(),
+        eventId:            (j['eventId']          as num?)?.toInt()    ?? 0,
+        eventTitle:         j['eventTitle']        as String?           ?? '',
+        studentId:          (j['studentId']        as num?)?.toInt()    ?? 0,
+        studentName:        j['studentName']       as String?           ?? '',
+        registrationDate:   j['registrationDate']  as String?           ?? '',
+        paymentStatus:      j['paymentStatus']     as String?           ?? '',
+        paidAmount:         (j['paidAmount']       as num?)?.toDouble() ?? 0.0,
+        costumeAssignmentId:(j['costumeAssignmentId'] as num?)?.toInt(),
       );
 }

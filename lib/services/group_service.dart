@@ -12,6 +12,7 @@ import 'auth_service.dart';
 class GroupException implements Exception {
   final String message;
   const GroupException(this.message);
+  @override String toString() => message;
 }
 
 // ─── Group model ──────────────────────────────────────────────────────────────
