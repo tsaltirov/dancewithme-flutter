@@ -1,5 +1,6 @@
 import 'package:easy_localization/easy_localization.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart' show kIsWeb, defaultTargetPlatform, TargetPlatform;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -7,7 +8,9 @@ import 'package:google_fonts/google_fonts.dart';
 import '../services/group_service.dart';
 import '../services/school_service.dart';
 import '../services/student_service.dart';
+import '../services/costume_service.dart';
 import '../services/event_service.dart';
+import '../services/payment_service.dart';
 import '../widgets/add_event_dialog.dart';
 import '../widgets/edit_event_dialog.dart';
 import '../widgets/enroll_event_dialog.dart';
@@ -17,6 +20,7 @@ import '../widgets/add_group_dialog.dart';
 import '../widgets/add_student_dialog.dart';
 import '../widgets/edit_group_dialog.dart';
 import '../widgets/edit_student_dialog.dart';
+import '../widgets/wardrobe_tab.dart';
 
 // ─── Design tokens (blue palette — school theme) ─────────────────────────────
 class _S {
@@ -41,7 +45,6 @@ class _S {
   static const unpaidText  = Color(0xFFDC2626);
   static const errorRed    = Color(0xFFEF4444);
   static const sidebarW    = 220.0;
-  static const rightColW   = 260.0;
 
   static const _av = [
     [Color(0xFFEFF6FF), Color(0xFF2563EB)],
@@ -64,20 +67,30 @@ const _kColEstado  = 104.0;
 const _kColActions = 120.0;  // 32 + 8 + 32 + 8 + 32 + padding (edit+pay+delete)
 
 // Column header label style
-Widget _colLbl(String text) => Text(
+Widget _colLbl(String text, {bool tablet = false}) => Text(
       text.toUpperCase(),
       style: GoogleFonts.outfit(
-        fontSize: 10, fontWeight: FontWeight.w700,
+        fontSize: tablet ? 12 : 10, fontWeight: FontWeight.w700,
         color: _S.hint, letterSpacing: 0.7,
       ),
     );
 
 enum _Layout { mobile, tablet, web }
+bool get _isDesktopOrWeb =>
+    kIsWeb ||
+    defaultTargetPlatform == TargetPlatform.windows ||
+    defaultTargetPlatform == TargetPlatform.macOS ||
+    defaultTargetPlatform == TargetPlatform.linux;
+
 _Layout _layoutOf(double w) {
-  if (w >= 1100) return _Layout.web;
-  if (w >= 600)  return _Layout.tablet;
+  if (_isDesktopOrWeb && w >= 1100) return _Layout.web;
+  if (w >= 600) return _Layout.tablet;
   return _Layout.mobile;
 }
+
+// True on any screen ≥ 600 dp — used to scale up card/row sizes for tablets.
+bool _isTabletScreen(BuildContext ctx) =>
+    MediaQuery.of(ctx).size.width >= 600;
 
 enum _Tab { students, events, alerts, wardrobe, groups, choreo }
 
@@ -112,10 +125,16 @@ class SchoolScreen extends StatefulWidget {
 class _SchoolScreenState extends State<SchoolScreen> {
   _Tab             _tab            = _Tab.students;
   int              _filter         = 0;
-  bool             _loading        = true;
+  int              _filterMonth    = DateTime.now().month;
+  int              _filterYear     = DateTime.now().year;
+  bool             _periodLoading  = false;
+  Map<int, bool>   _periodPaidMap  = {};
+  bool             _loading         = true;
+  bool             _paymentsLoading = false;
   String?          _error;
-  List<Student>    _allStudents    = [];
-  Map<int, String> _studentGroupMap = {};
+  List<Student>    _allStudents     = [];
+  Map<int, List<String>>  _studentGroupMap  = {};
+  Map<int, List<Payment>> _studentPayments  = {};
   final _searchCtrl = TextEditingController();
 
   @override
@@ -131,35 +150,101 @@ class _SchoolScreenState extends State<SchoolScreen> {
   }
 
   Future<void> _loadData() async {
-    setState(() { _loading = true; _error = null; });
+    setState(() {
+      _loading = true; _error = null;
+      _paymentsLoading = false; _studentPayments = {};
+    });
     try {
-      // Load students + group map in parallel; group map failure is non-fatal
-      final results = await Future.wait([
-        StudentService.getBySchoolWithPayments(widget.school.id),
+      // Phase 1 — students + group map in parallel → show list immediately.
+      final parallel = await Future.wait([
+        StudentService.getBySchool(widget.school.id),
         _buildGroupMap(widget.school.id),
       ]);
       if (!mounted) return;
+
+      final students = parallel[0] as List<Student>;
       setState(() {
-        _allStudents     = results[0] as List<Student>;
-        _studentGroupMap = results[1] as Map<int, String>;
+        _allStudents     = students;
+        _studentGroupMap = parallel[1] as Map<int, List<String>>;
         _loading         = false;
+        _paymentsLoading = students.isNotEmpty;
       });
+
+      // Phase 2 — payment data in background, list already visible.
+      // ignore: unawaited_futures
+      if (students.isNotEmpty) _loadPayments(students);
     } catch (e) {
       if (!mounted) return;
-      setState(() { _error = e.toString(); _loading = false; });
+      setState(() { _error = e.toString(); _loading = false; _paymentsLoading = false; });
     }
   }
 
-  static Future<Map<int, String>> _buildGroupMap(int schoolId) async {
+  Future<void> _loadPayments(List<Student> students) async {
+    try {
+      final paymentLists = await Future.wait(
+        students.map((s) async {
+          try {
+            return await PaymentService.getStudentPayments(s.id);
+          } catch (_) {
+            return <Payment>[];
+          }
+        }),
+      );
+      if (!mounted) return;
+
+      final paymentMap = <int, List<Payment>>{};
+      final studentsWithPaid = <Student>[];
+      for (var i = 0; i < students.length; i++) {
+        final pmts = i < paymentLists.length ? paymentLists[i] : <Payment>[];
+        paymentMap[students[i].id] = pmts;
+        studentsWithPaid.add(students[i].copyWith(isPaid: pmts.isNotEmpty));
+      }
+
+      setState(() {
+        _allStudents     = studentsWithPaid;
+        _studentPayments = paymentMap;
+        _paymentsLoading = false;
+      });
+
+      if (_filter != 0) _computePeriodMap();
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _paymentsLoading = false);
+    }
+  }
+
+  // Client-side — zero extra HTTP calls. Runs instantly after data is loaded.
+  void _computePeriodMap() {
+    final map = <int, bool>{};
+    for (final s in _allStudents) {
+      map[s.id] = (_studentPayments[s.id] ?? []).any(
+        (p) => p.year == _filterYear && p.month == _filterMonth && p.isPaid,
+      );
+    }
+    setState(() { _periodPaidMap = map; _periodLoading = false; });
+  }
+
+  void _loadPeriodPayments() {
+    if (_allStudents.isEmpty || _studentPayments.isEmpty) return;
+    setState(() => _periodLoading = true);
+    _computePeriodMap();
+  }
+
+  void _onPeriodChange(int year, int month) {
+    setState(() { _filterYear = year; _filterMonth = month; });
+    _loadPeriodPayments();
+  }
+
+  static Future<Map<int, List<String>>> _buildGroupMap(int schoolId) async {
     try {
       final groups = await GroupService.getBySchool(schoolId);
       final enrollmentLists = await Future.wait(
         groups.map((g) => GroupService.getEnrollments(g.id)),
       );
-      final map = <int, String>{};
+      final map = <int, List<String>>{};
       for (var i = 0; i < groups.length; i++) {
         for (final e in enrollmentLists[i]) {
-          if (e.active) map[e.studentId] = groups[i].name;
+          if (e.active) (map[e.studentId] ??= []).add(groups[i].name);
         }
       }
       return map;
@@ -222,7 +307,7 @@ Future<void> _handleAddCsv() async {
               const CircularProgressIndicator(
                   color: _S.primary, strokeWidth: 2.5),
               const SizedBox(height: 12),
-              Text('Importando alumnos…',
+              Text('school.importingStudents'.tr(),
                   style: _st(13, FontWeight.normal, _S.muted)),
             ],
           ),
@@ -305,8 +390,8 @@ Future<void> _handleAddCsv() async {
 
   List<Student> get _students {
     var list = _allStudents;
-    if (_filter == 1) list = list.where((s) => s.isPaid).toList();
-    if (_filter == 2) list = list.where((s) => !s.isPaid).toList();
+    if (_filter == 1) list = list.where((s) => _periodPaidMap[s.id] == true).toList();
+    if (_filter == 2) list = list.where((s) => _periodPaidMap[s.id] != true).toList();
     final q = _searchCtrl.text.trim().toLowerCase();
     if (q.isNotEmpty) {
       list = list.where((s) =>
@@ -333,8 +418,11 @@ Future<void> _handleAddCsv() async {
               searchCtrl: _searchCtrl, students: _students,
               groupMap: _studentGroupMap,
               loading: _loading, error: _error,
+              paymentsLoading: _paymentsLoading,
+              filterMonth: _filterMonth, filterYear: _filterYear,
+              periodLoading: _periodLoading, onPeriodChange: _onPeriodChange,
               onTab: (t) => setState(() => _tab = t),
-              onFilter: (f) => setState(() => _filter = f),
+              onFilter: (f) { setState(() => _filter = f); if (f != 0) _loadPeriodPayments(); },
               onSearch: () => setState(() {}),
               onBack: () => Navigator.pop(context),
               onRetry: _loadData,
@@ -346,8 +434,11 @@ Future<void> _handleAddCsv() async {
               searchCtrl: _searchCtrl, students: _students, safeBottom: safeB,
               groupMap: _studentGroupMap,
               loading: _loading, error: _error,
+              paymentsLoading: _paymentsLoading,
+              filterMonth: _filterMonth, filterYear: _filterYear,
+              periodLoading: _periodLoading, onPeriodChange: _onPeriodChange,
               onTab: (t) => setState(() => _tab = t),
-              onFilter: (f) => setState(() => _filter = f),
+              onFilter: (f) { setState(() => _filter = f); if (f != 0) _loadPeriodPayments(); },
               onSearch: () => setState(() {}),
               onBack: () => Navigator.pop(context),
               onRetry: _loadData,
@@ -359,8 +450,11 @@ Future<void> _handleAddCsv() async {
               searchCtrl: _searchCtrl, students: _students, safeBottom: safeB,
               groupMap: _studentGroupMap,
               loading: _loading, error: _error,
+              paymentsLoading: _paymentsLoading,
+              filterMonth: _filterMonth, filterYear: _filterYear,
+              periodLoading: _periodLoading, onPeriodChange: _onPeriodChange,
               onTab: (t) => setState(() => _tab = t),
-              onFilter: (f) => setState(() => _filter = f),
+              onFilter: (f) { setState(() => _filter = f); if (f != 0) _loadPeriodPayments(); },
               onSearch: () => setState(() {}),
               onBack: () => Navigator.pop(context),
               onRetry: _loadData,
@@ -383,9 +477,10 @@ class _MobileSchool extends StatelessWidget {
   final int                filter;
   final TextEditingController searchCtrl;
   final List<Student>      students;
-  final Map<int, String>   groupMap;
+  final Map<int, List<String>>   groupMap;
   final double             safeBottom;
   final bool               loading;
+  final bool               paymentsLoading;
   final String?            error;
   final void Function(_Tab) onTab;
   final void Function(int)  onFilter;
@@ -394,15 +489,21 @@ class _MobileSchool extends StatelessWidget {
   final VoidCallback        onRetry;
   final VoidCallback        onAddStudent;
   final VoidCallback        onAddCsv;
+  final int                       filterMonth;
+  final int                       filterYear;
+  final bool                      periodLoading;
+  final void Function(int, int)   onPeriodChange;
 
   const _MobileSchool({
     required this.school, required this.tab, required this.filter,
     required this.searchCtrl, required this.students, required this.safeBottom,
     required this.groupMap,
-    required this.loading, required this.error,
+    required this.loading, required this.paymentsLoading, required this.error,
     required this.onTab, required this.onFilter,
     required this.onSearch, required this.onBack, required this.onRetry,
     required this.onAddStudent, required this.onAddCsv,
+    required this.filterMonth, required this.filterYear,
+    required this.periodLoading, required this.onPeriodChange,
   });
 
   @override
@@ -421,13 +522,15 @@ class _MobileSchool extends StatelessWidget {
               students: students, filter: filter, groupMap: groupMap,
               searchCtrl: searchCtrl, onFilter: onFilter, onSearch: onSearch,
               tableMode: false, safeBottom: safeBottom,
-              loading: loading, error: error, onRetry: onRetry,
+              loading: loading, paymentsLoading: paymentsLoading,
+              error: error, onRetry: onRetry,
+              filterMonth: filterMonth, filterYear: filterYear,
+              periodLoading: periodLoading, onPeriodChange: onPeriodChange,
             ),
           _Tab.events   => _EventsTab(school: school),
           _Tab.alerts   => _PlaceholderContent(
               icon: Icons.notifications_outlined, labelKey: 'school.tabAlerts'),
-          _Tab.wardrobe => _PlaceholderContent(
-              icon: Icons.checkroom_rounded, labelKey: 'school.tabWardrobe'),
+          _Tab.wardrobe => WardrobeTab(school: school),
           _Tab.groups   => _GroupsTab(school: school),
           _Tab.choreo   => _PlaceholderContent(
               icon: Icons.queue_music_rounded, labelKey: 'school.tabChoreo'),
@@ -447,9 +550,10 @@ class _TabletSchool extends StatelessWidget {
   final int                filter;
   final TextEditingController searchCtrl;
   final List<Student>      students;
-  final Map<int, String>   groupMap;
+  final Map<int, List<String>>   groupMap;
   final double             safeBottom;
   final bool               loading;
+  final bool               paymentsLoading;
   final String?            error;
   final void Function(_Tab) onTab;
   final void Function(int)  onFilter;
@@ -458,15 +562,21 @@ class _TabletSchool extends StatelessWidget {
   final VoidCallback        onRetry;
   final VoidCallback        onAddStudent;
   final VoidCallback        onAddCsv;
+  final int                       filterMonth;
+  final int                       filterYear;
+  final bool                      periodLoading;
+  final void Function(int, int)   onPeriodChange;
 
   const _TabletSchool({
     required this.school, required this.tab, required this.filter,
     required this.searchCtrl, required this.students, required this.safeBottom,
     required this.groupMap,
-    required this.loading, required this.error,
+    required this.loading, required this.paymentsLoading, required this.error,
     required this.onTab, required this.onFilter,
     required this.onSearch, required this.onBack, required this.onRetry,
     required this.onAddStudent, required this.onAddCsv,
+    required this.filterMonth, required this.filterYear,
+    required this.periodLoading, required this.onPeriodChange,
   });
 
   @override
@@ -489,14 +599,16 @@ class _TabletSchool extends StatelessWidget {
                 students: students, filter: filter, groupMap: groupMap,
                 searchCtrl: searchCtrl, onFilter: onFilter, onSearch: onSearch,
                 tableMode: true, safeBottom: safeBottom, showSearch: false,
-                loading: loading, error: error, onRetry: onRetry,
+                loading: loading, paymentsLoading: paymentsLoading,
+                error: error, onRetry: onRetry,
+                filterMonth: filterMonth, filterYear: filterYear,
+                periodLoading: periodLoading, onPeriodChange: onPeriodChange,
               ),
             ),
           _Tab.events   => _EventsTab(school: school),
           _Tab.alerts   => _PlaceholderContent(
               icon: Icons.notifications_outlined, labelKey: 'school.tabAlerts'),
-          _Tab.wardrobe => _PlaceholderContent(
-              icon: Icons.checkroom_rounded, labelKey: 'school.tabWardrobe'),
+          _Tab.wardrobe => WardrobeTab(school: school),
           _Tab.groups   => _GroupsTab(school: school),
           _Tab.choreo   => _PlaceholderContent(
               icon: Icons.queue_music_rounded, labelKey: 'school.tabChoreo'),
@@ -516,8 +628,9 @@ class _WebSchool extends StatelessWidget {
   final int                filter;
   final TextEditingController searchCtrl;
   final List<Student>      students;
-  final Map<int, String>   groupMap;
+  final Map<int, List<String>>   groupMap;
   final bool               loading;
+  final bool               paymentsLoading;
   final String?            error;
   final void Function(_Tab) onTab;
   final void Function(int)  onFilter;
@@ -526,15 +639,21 @@ class _WebSchool extends StatelessWidget {
   final VoidCallback        onRetry;
   final VoidCallback        onAddStudent;
   final VoidCallback        onAddCsv;
+  final int                       filterMonth;
+  final int                       filterYear;
+  final bool                      periodLoading;
+  final void Function(int, int)   onPeriodChange;
 
   const _WebSchool({
     required this.school, required this.tab, required this.filter,
     required this.searchCtrl, required this.students,
     required this.groupMap,
-    required this.loading, required this.error,
+    required this.loading, required this.paymentsLoading, required this.error,
     required this.onTab, required this.onFilter,
     required this.onSearch, required this.onBack, required this.onRetry,
     required this.onAddStudent, required this.onAddCsv,
+    required this.filterMonth, required this.filterYear,
+    required this.periodLoading, required this.onPeriodChange,
   });
 
   @override
@@ -554,28 +673,20 @@ class _WebSchool extends StatelessWidget {
             child: switch (tab) {
               _Tab.students => Padding(
                   padding: const EdgeInsets.fromLTRB(28, 0, 28, 0),
-                  child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    Expanded(
-                      child: _StudentsBody(
-                        students: students, filter: filter, groupMap: groupMap,
-                        searchCtrl: searchCtrl, onFilter: onFilter, onSearch: onSearch,
-                        tableMode: true, safeBottom: 0, showSearch: false,
-                        loading: loading, error: error, onRetry: onRetry,
-                      ),
-                    ),
-                    const SizedBox(width: 24),
-                    SizedBox(
-                      width: _S.rightColW,
-                      child: const _EventsPanel(safeBottom: 0),
-                    ),
-                  ]),
+                  child: _StudentsBody(
+                    students: students, filter: filter, groupMap: groupMap,
+                    searchCtrl: searchCtrl, onFilter: onFilter, onSearch: onSearch,
+                    tableMode: true, safeBottom: 0, showSearch: false,
+                    loading: loading, paymentsLoading: paymentsLoading,
+                    error: error, onRetry: onRetry,
+                    filterMonth: filterMonth, filterYear: filterYear,
+                    periodLoading: periodLoading, onPeriodChange: onPeriodChange,
+                  ),
                 ),
-              _Tab.events   => _PlaceholderContent(
-                  icon: Icons.event_rounded, labelKey: 'school.tabEvents'),
+              _Tab.events   => _EventsTab(school: school),
               _Tab.alerts   => _PlaceholderContent(
                   icon: Icons.notifications_outlined, labelKey: 'school.tabAlerts'),
-              _Tab.wardrobe => _PlaceholderContent(
-                  icon: Icons.checkroom_rounded, labelKey: 'school.tabWardrobe'),
+              _Tab.wardrobe => WardrobeTab(school: school),
               _Tab.groups   => _GroupsTab(school: school),
               _Tab.choreo   => _PlaceholderContent(
                   icon: Icons.queue_music_rounded, labelKey: 'school.tabChoreo'),
@@ -1023,19 +1134,26 @@ class _TabPill extends StatelessWidget {
 //  STUDENTS BODY
 // ═══════════════════════════════════════════════════════════════════════════════
 
+void _noop(int a, int b) {}
+
 class _StudentsBody extends StatelessWidget {
-  final List<Student>         students;
-  final int                   filter;
-  final Map<int, String>      groupMap;
-  final TextEditingController searchCtrl;
-  final void Function(int)    onFilter;
-  final VoidCallback          onSearch;
-  final bool                  tableMode;
-  final double                safeBottom;
-  final bool                  showSearch;
-  final bool                  loading;
-  final String?               error;
-  final VoidCallback?         onRetry;
+  final List<Student>           students;
+  final int                     filter;
+  final Map<int, List<String>>  groupMap;
+  final TextEditingController   searchCtrl;
+  final void Function(int)      onFilter;
+  final VoidCallback            onSearch;
+  final bool                    tableMode;
+  final double                  safeBottom;
+  final bool                    showSearch;
+  final bool                    loading;
+  final bool                    paymentsLoading;
+  final String?                 error;
+  final VoidCallback?           onRetry;
+  final int                     filterMonth;
+  final int                     filterYear;
+  final bool                    periodLoading;
+  final void Function(int, int) onPeriodChange;
 
   const _StudentsBody({
     required this.students,
@@ -1045,11 +1163,16 @@ class _StudentsBody extends StatelessWidget {
     required this.onSearch,
     required this.tableMode,
     required this.safeBottom,
-    this.groupMap  = const {},
-    this.showSearch = true,
-    this.loading    = false,
+    this.groupMap        = const {},
+    this.showSearch      = true,
+    this.loading         = false,
+    this.paymentsLoading = false,
     this.error,
     this.onRetry,
+    this.filterMonth    = 0,
+    this.filterYear     = 0,
+    this.periodLoading  = false,
+    this.onPeriodChange = _noop,
   });
 
   @override
@@ -1061,36 +1184,113 @@ class _StudentsBody extends StatelessWidget {
     }
     if (error != null) return _ErrorBody(onRetry: onRetry);
 
+    // Fixed header widget (search + filters + payments banner)
+    Widget header = Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (showSearch) ...[
+          _SearchField(ctrl: searchCtrl, onChanged: onSearch),
+          const SizedBox(height: 12),
+        ],
+        _StudentFilterBar(
+          selected:       filter,
+          onSelect:       onFilter,
+          filterMonth:    filterMonth,
+          filterYear:     filterYear,
+          periodLoading:  periodLoading,
+          onPeriodChange: onPeriodChange,
+        ),
+        // Subtle banner while payment statuses are loading in background
+        AnimatedSize(
+          duration: const Duration(milliseconds: 220),
+          curve: Curves.easeOut,
+          child: paymentsLoading
+              ? Padding(
+                  padding: const EdgeInsets.only(top: 10),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 12, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: _S.primaryDim,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Row(children: [
+                      const SizedBox(
+                        width: 12, height: 12,
+                        child: CircularProgressIndicator(
+                            color: _S.primary, strokeWidth: 2),
+                      ),
+                      const SizedBox(width: 8),
+                      Text('school.loadingPayments'.tr(),
+                          style: _st(12, FontWeight.w500, _S.primary)),
+                    ]),
+                  ),
+                )
+              : const SizedBox.shrink(),
+        ),
+        const SizedBox(height: 16),
+      ],
+    );
+
     return RefreshIndicator(
       color: _S.primary,
       onRefresh: () async { onRetry?.call(); },
-      child: ListView(
+      child: CustomScrollView(
         physics: const AlwaysScrollableScrollPhysics(),
-        padding: EdgeInsets.fromLTRB(0, 16, 0, safeBottom + 20),
-        children: [
-          if (showSearch) ...[
-            _SearchField(ctrl: searchCtrl, onChanged: onSearch),
-            const SizedBox(height: 12),
-          ],
-          _FilterChips(selected: filter, onSelect: onFilter),
-          const SizedBox(height: 16),
+        slivers: [
+          // ── Fixed header (non-virtual) ────────────────────────────────────
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(0, 16, 0, 0),
+            sliver: SliverToBoxAdapter(child: header),
+          ),
+
+          // ── Empty state ───────────────────────────────────────────────────
           if (students.isEmpty)
-            const _EmptyStudents()
-          else if (tableMode) ...[
-            // ── Table header ──────────────────────────────────────────────────
-            _TableHeader(),
-            const SizedBox(height: 6),
-            // ── Table rows ────────────────────────────────────────────────────
-            ...students.asMap().entries.map((e) => Padding(
+            const SliverFillRemaining(
+              hasScrollBody: false,
+              child: _EmptyStudents(),
+            )
+
+          // ── Table header (fixed, non-virtual) ─────────────────────────────
+          else ...[
+            if (tableMode)
+              SliverToBoxAdapter(
+                child: Padding(
                   padding: const EdgeInsets.only(bottom: 6),
-                  child: _TableRow(student: e.value, index: e.key, onReload: onRetry, groupMap: groupMap),
-                )),
-          ] else
-            // ── Mobile cards ──────────────────────────────────────────────────
-            ...students.asMap().entries.map((e) => Padding(
-                  padding: const EdgeInsets.only(bottom: 10),
-                  child: _MobileStudentCard(student: e.value, index: e.key, onReload: onRetry, groupMap: groupMap),
-                )),
+                  child: _TableHeader(),
+                ),
+              ),
+
+            // ── Virtual student list ──────────────────────────────────────
+            SliverList(
+              delegate: SliverChildBuilderDelegate(
+                (_, i) => Padding(
+                  padding: EdgeInsets.only(
+                      bottom: tableMode ? 6 : 10),
+                  child: tableMode
+                      ? _TableRow(
+                          student: students[i],
+                          index: i,
+                          onReload: onRetry,
+                          groupMap: groupMap,
+                        )
+                      : _MobileStudentCard(
+                          student: students[i],
+                          index: i,
+                          onReload: onRetry,
+                          groupMap: groupMap,
+                        ),
+                ),
+                childCount: students.length,
+              ),
+            ),
+
+            // ── Bottom padding ────────────────────────────────────────────
+            SliverPadding(
+              padding: EdgeInsets.only(bottom: safeBottom + 20),
+            ),
+          ],
         ],
       ),
     );
@@ -1140,7 +1340,7 @@ Future<bool> _confirmDeleteStudent(BuildContext context, String name) async {
                 color: _S.unpaidText, size: 26),
           ),
           const SizedBox(height: 16),
-          Text('¿Eliminar alumno?',
+          Text('student.deleteTitle'.tr(),
               style: _st(18, FontWeight.w700, _S.ink),
               textAlign: TextAlign.center),
           const SizedBox(height: 10),
@@ -1162,7 +1362,7 @@ Future<bool> _confirmDeleteStudent(BuildContext context, String name) async {
             ]),
           ),
           const SizedBox(height: 8),
-          Text('Esta acción no se puede deshacer.',
+          Text('form.irreversible'.tr(),
               style: _st(13, FontWeight.normal, _S.muted),
               textAlign: TextAlign.center),
           const SizedBox(height: 20),
@@ -1179,7 +1379,7 @@ Future<bool> _confirmDeleteStudent(BuildContext context, String name) async {
                     borderRadius: BorderRadius.circular(12)),
                 padding: const EdgeInsets.symmetric(vertical: 12),
               ),
-              child: Text('Cancelar',
+              child: Text('form.cancel'.tr(),
                   style: _st(14, FontWeight.w600, _S.muted)),
             ),
           ),
@@ -1195,7 +1395,7 @@ Future<bool> _confirmDeleteStudent(BuildContext context, String name) async {
                 padding: const EdgeInsets.symmetric(vertical: 12),
                 elevation: 0,
               ),
-              child: Text('Eliminar',
+              child: Text('form.delete'.tr(),
                   style: _st(14, FontWeight.w600, Colors.white)),
             ),
           ),
@@ -1230,7 +1430,7 @@ Future<bool> _confirmDeleteGroup(BuildContext context, String name) async {
                 color: _S.unpaidText, size: 26),
           ),
           const SizedBox(height: 16),
-          Text('¿Eliminar grupo?',
+          Text('groupForm.deleteTitle'.tr(),
               style: _st(18, FontWeight.w700, _S.ink),
               textAlign: TextAlign.center),
           const SizedBox(height: 10),
@@ -1252,7 +1452,7 @@ Future<bool> _confirmDeleteGroup(BuildContext context, String name) async {
             ]),
           ),
           const SizedBox(height: 8),
-          Text('Se eliminará el grupo y sus datos. Esta acción no se puede deshacer.',
+          Text('groupForm.deleteDesc'.tr(),
               style: _st(13, FontWeight.normal, _S.muted),
               textAlign: TextAlign.center),
           const SizedBox(height: 20),
@@ -1269,7 +1469,7 @@ Future<bool> _confirmDeleteGroup(BuildContext context, String name) async {
                     borderRadius: BorderRadius.circular(12)),
                 padding: const EdgeInsets.symmetric(vertical: 12),
               ),
-              child: Text('Cancelar',
+              child: Text('form.cancel'.tr(),
                   style: _st(14, FontWeight.w600, _S.muted)),
             ),
           ),
@@ -1285,7 +1485,7 @@ Future<bool> _confirmDeleteGroup(BuildContext context, String name) async {
                 padding: const EdgeInsets.symmetric(vertical: 12),
                 elevation: 0,
               ),
-              child: Text('Eliminar',
+              child: Text('form.delete'.tr(),
                   style: _st(14, FontWeight.w600, Colors.white)),
             ),
           ),
@@ -1305,27 +1505,22 @@ class _TableHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final t = _isTabletScreen(context);
     return Container(
-      height: 40,
-      padding: const EdgeInsets.symmetric(horizontal: 16),
+      height: t ? 48 : 40,
+      padding: EdgeInsets.symmetric(horizontal: t ? 20 : 16),
       decoration: BoxDecoration(
         color: _S.headerBg,
         borderRadius: BorderRadius.circular(10),
         border: Border.all(color: _S.border),
       ),
       child: Row(children: [
-        // Avatar spacer
-        const SizedBox(width: _kAvatarSlot),
-        // Nombre y Apellidos
-        Expanded(flex: 3, child: _colLbl('Nombre y Apellidos')),
-        // Curso
-        SizedBox(width: _kColCurso, child: Center(child: _colLbl('Curso'))),
-        // Email
-        Expanded(flex: 2, child: _colLbl('Email')),
-        // Estado
-        SizedBox(width: _kColEstado, child: Center(child: _colLbl('Estado'))),
-        // Acciones
-        SizedBox(width: _kColActions, child: Center(child: _colLbl('Acciones'))),
+        SizedBox(width: t ? 60.0 : _kAvatarSlot),
+        Expanded(flex: 3, child: _colLbl('school.colName'.tr(),    tablet: t)),
+        SizedBox(width: t ? 90.0 : _kColCurso,   child: Center(child: _colLbl('school.colCourse'.tr(), tablet: t))),
+        Expanded(flex: 2, child: _colLbl('school.colEmail'.tr(),   tablet: t)),
+        SizedBox(width: t ? 124.0 : _kColEstado,  child: Center(child: _colLbl('Estado',               tablet: t))),
+        SizedBox(width: t ? 156.0 : _kColActions, child: Center(child: _colLbl('Acciones',             tablet: t))),
       ]),
     );
   }
@@ -1335,7 +1530,7 @@ class _TableRow extends StatelessWidget {
   final Student          student;
   final int              index;
   final VoidCallback?    onReload;
-  final Map<int, String> groupMap;
+  final Map<int, List<String>> groupMap;
 
   const _TableRow({
     required this.student,
@@ -1346,9 +1541,10 @@ class _TableRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final t = _isTabletScreen(context);
     return Container(
-      height: 58,
-      padding: const EdgeInsets.symmetric(horizontal: 16),
+      height: t ? 72 : 58,
+      padding: EdgeInsets.symmetric(horizontal: t ? 20 : 16),
       decoration: BoxDecoration(
         color: _S.surface,
         borderRadius: BorderRadius.circular(10),
@@ -1359,22 +1555,22 @@ class _TableRow extends StatelessWidget {
       ),
       child: Row(children: [
         // Avatar
-        _Avatar(initials: student.initials, index: index, size: 36),
-        const SizedBox(width: 12),
+        _Avatar(initials: student.initials, index: index, size: t ? 44 : 36),
+        SizedBox(width: t ? 14 : 12),
         // Nombre y Apellidos
         Expanded(
           flex: 3,
           child: Text(student.fullName,
-              style: _st(14, FontWeight.w600, _S.ink),
+              style: _st(t ? 16 : 14, FontWeight.w600, _S.ink),
               overflow: TextOverflow.ellipsis),
         ),
         // Curso
         SizedBox(
-          width: _kColCurso,
+          width: t ? 90.0 : _kColCurso,
           child: Center(
             child: Text(
-              groupMap[student.id] ?? '—',
-              style: _st(12, FontWeight.normal,
+              groupMap[student.id]?.join(', ') ?? '—',
+              style: _st(t ? 14 : 12, FontWeight.normal,
                   groupMap.containsKey(student.id) ? _S.ink : _S.hint),
               overflow: TextOverflow.ellipsis,
             ),
@@ -1384,27 +1580,27 @@ class _TableRow extends StatelessWidget {
         Expanded(
           flex: 2,
           child: Text(student.email,
-              style: _st(13, FontWeight.normal, _S.muted),
+              style: _st(t ? 15 : 13, FontWeight.normal, _S.muted),
               overflow: TextOverflow.ellipsis),
         ),
         // Estado
         SizedBox(
-          width: _kColEstado,
+          width: t ? 124.0 : _kColEstado,
           child: Center(child: _Badge(isPaid: student.isPaid)),
         ),
         // Acciones
         SizedBox(
-          width: _kColActions,
+          width: t ? 156.0 : _kColActions,
           child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
             _ActionBtn(
               icon: Icons.edit_outlined,
               color: _S.primary, bg: _S.primaryDim,
-              tooltip: 'Editar',
+              tooltip: 'form.edit'.tr(),
               onTap: () async {
                 final ok = await showEditStudentDialog(context, student: student);
                 if (!context.mounted) return;
                 if (ok) {
-                  ScaffoldMessenger.of(context).showSnackBar(_successSnack('Alumno actualizado correctamente'));
+                  ScaffoldMessenger.of(context).showSnackBar(_successSnack('student.updateSuccess'.tr()));
                   onReload?.call();
                 }
               },
@@ -1425,7 +1621,7 @@ class _TableRow extends StatelessWidget {
             _ActionBtn(
               icon: Icons.delete_outline_rounded,
               color: _S.unpaidText, bg: _S.unpaidBg,
-              tooltip: 'Eliminar',
+              tooltip: 'form.delete'.tr(),
               onTap: () async {
                 final confirmed = await _confirmDeleteStudent(context, student.fullName);
                 if (!context.mounted) return;
@@ -1433,12 +1629,12 @@ class _TableRow extends StatelessWidget {
                 try {
                   await StudentService.deleteStudent(student.id);
                   if (!context.mounted) return;
-                  ScaffoldMessenger.of(context).showSnackBar(_successSnack('Alumno eliminado'));
+                  ScaffoldMessenger.of(context).showSnackBar(_successSnack('student.deleteSuccess'.tr()));
                   onReload?.call();
                 } catch (e) {
                   if (!context.mounted) return;
                   ScaffoldMessenger.of(context).showSnackBar(
-                    _errorSnack(e is StudentException ? e.message : 'Error al eliminar'),
+                    _errorSnack(e is StudentException ? e.message : 'student.deleteError'.tr()),
                   );
                 }
               },
@@ -1458,7 +1654,7 @@ class _MobileStudentCard extends StatelessWidget {
   final Student          student;
   final int              index;
   final VoidCallback?    onReload;
-  final Map<int, String> groupMap;
+  final Map<int, List<String>> groupMap;
 
   const _MobileStudentCard({
     required this.student,
@@ -1513,9 +1709,9 @@ class _MobileStudentCard extends StatelessWidget {
                     border: Border.all(color: _S.border),
                   ),
                   child: Row(mainAxisSize: MainAxisSize.min, children: [
-                    Text('Curso: ', style: _st(11, FontWeight.w500, _S.hint)),
+                    Text('${'school.colCourse'.tr()}: ', style: _st(11, FontWeight.w500, _S.hint)),
                     Text(
-                      groupMap[student.id] ?? '—',
+                      groupMap[student.id]?.join(', ') ?? '—',
                       style: _st(11, FontWeight.normal,
                           groupMap.containsKey(student.id) ? _S.ink : _S.hint),
                     ),
@@ -1525,12 +1721,12 @@ class _MobileStudentCard extends StatelessWidget {
                 _ActionBtn(
                   icon: Icons.edit_outlined,
                   color: _S.primary, bg: _S.primaryDim,
-                  tooltip: 'Editar',
+                  tooltip: 'form.edit'.tr(),
                   onTap: () async {
                     final ok = await showEditStudentDialog(context, student: student);
                     if (!context.mounted) return;
                     if (ok) {
-                      ScaffoldMessenger.of(context).showSnackBar(_successSnack('Alumno actualizado correctamente'));
+                      ScaffoldMessenger.of(context).showSnackBar(_successSnack('student.updateSuccess'.tr()));
                       onReload?.call();
                     }
                   },
@@ -1551,7 +1747,7 @@ class _MobileStudentCard extends StatelessWidget {
                 _ActionBtn(
                   icon: Icons.delete_outline_rounded,
                   color: _S.unpaidText, bg: _S.unpaidBg,
-                  tooltip: 'Eliminar',
+                  tooltip: 'form.delete'.tr(),
                   onTap: () async {
                     final confirmed = await _confirmDeleteStudent(context, student.fullName);
                     if (!context.mounted) return;
@@ -1559,12 +1755,12 @@ class _MobileStudentCard extends StatelessWidget {
                     try {
                       await StudentService.deleteStudent(student.id);
                       if (!context.mounted) return;
-                      ScaffoldMessenger.of(context).showSnackBar(_successSnack('Alumno eliminado'));
+                      ScaffoldMessenger.of(context).showSnackBar(_successSnack('student.deleteSuccess'.tr()));
                       onReload?.call();
                     } catch (e) {
                       if (!context.mounted) return;
                       ScaffoldMessenger.of(context).showSnackBar(
-                        _errorSnack(e is StudentException ? e.message : 'Error al eliminar'),
+                        _errorSnack(e is StudentException ? e.message : 'student.deleteError'.tr()),
                       );
                     }
                   },
@@ -1584,12 +1780,11 @@ class _MobileStudentCard extends StatelessWidget {
 
 // ─── Action button (edit / delete) ───────────────────────────────────────────
 class _ActionBtn extends StatelessWidget {
-  final IconData icon;
-  final Color    color;
-  final Color    bg;
-  final String   tooltip;
+  final IconData     icon;
+  final Color        color;
+  final Color        bg;
+  final String       tooltip;
   final VoidCallback onTap;
-
   const _ActionBtn({
     required this.icon, required this.color,
     required this.bg, required this.tooltip,
@@ -1598,6 +1793,7 @@ class _ActionBtn extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final sz = _isTabletScreen(context) ? 40.0 : 32.0;
     return Tooltip(
       message: tooltip,
       preferBelow: false,
@@ -1606,13 +1802,13 @@ class _ActionBtn extends StatelessWidget {
         child: GestureDetector(
           onTap: onTap,
           child: Container(
-            width: 32, height: 32,
+            width: sz, height: sz,
             decoration: BoxDecoration(
               color: bg,
-              borderRadius: BorderRadius.circular(8),
+              borderRadius: BorderRadius.circular(sz * 0.25),
             ),
             alignment: Alignment.center,
-            child: Icon(icon, size: 15, color: color),
+            child: Icon(icon, size: sz * 0.47, color: color),
           ),
         ),
       ),
@@ -1708,26 +1904,149 @@ class _SearchField extends StatelessWidget {
   }
 }
 
-// ─── Filter chips ─────────────────────────────────────────────────────────────
-class _FilterChips extends StatelessWidget {
-  final int selected;
-  final void Function(int) onSelect;
+// ─── Student filter bar (chips + period selector) ────────────────────────────
+class _StudentFilterBar extends StatelessWidget {
+  final int    selected;
+  final void Function(int)    onSelect;
+  final int    filterMonth;
+  final int    filterYear;
+  final bool   periodLoading;
+  final void Function(int, int) onPeriodChange;
 
-  const _FilterChips({required this.selected, required this.onSelect});
+  static List<String> _monthNames() => 'ui.monthsShort'.tr().split(',');
+
+  const _StudentFilterBar({
+    required this.selected,
+    required this.onSelect,
+    required this.filterMonth,
+    required this.filterYear,
+    required this.periodLoading,
+    required this.onPeriodChange,
+  });
+
+  void _prev() {
+    if (filterMonth == 1) {
+      onPeriodChange(filterYear - 1, 12);
+    } else {
+      onPeriodChange(filterYear, filterMonth - 1);
+    }
+  }
+
+  void _next() {
+    if (filterMonth == 12) {
+      onPeriodChange(filterYear + 1, 1);
+    } else {
+      onPeriodChange(filterYear, filterMonth + 1);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    return Row(children: [
-      _Chip(label: 'school.filterAll'.tr(),    index: 0, selected: selected, onTap: onSelect,
-          activeBg: _S.primary,   activeText: Colors.white),
-      const SizedBox(width: 8),
-      _Chip(label: 'school.filterPaid'.tr(),   index: 1, selected: selected, onTap: onSelect,
-          activeBg: _S.paidBg,   activeText: _S.paidText),
-      const SizedBox(width: 8),
-      _Chip(label: 'school.filterUnpaid'.tr(), index: 2, selected: selected, onTap: onSelect,
-          activeBg: _S.unpaidBg, activeText: _S.unpaidText),
-    ]);
+    final showPeriod = selected != 0;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        // ── Filter chips ─────────────────────────────────────────────────────
+        Row(children: [
+          _Chip(label: 'school.filterAll'.tr(),    index: 0, selected: selected, onTap: onSelect,
+              activeBg: _S.primary,   activeText: Colors.white),
+          const SizedBox(width: 8),
+          _Chip(label: 'school.filterPaid'.tr(),   index: 1, selected: selected, onTap: onSelect,
+              activeBg: _S.paidBg,   activeText: _S.paidText),
+          const SizedBox(width: 8),
+          _Chip(label: 'school.filterUnpaid'.tr(), index: 2, selected: selected, onTap: onSelect,
+              activeBg: _S.unpaidBg, activeText: _S.unpaidText),
+        ]),
+        // ── Period selector (animated reveal when filter ≠ 0) ────────────────
+        AnimatedSize(
+          duration: const Duration(milliseconds: 220),
+          curve: Curves.easeInOut,
+          child: showPeriod
+              ? Padding(
+                  padding: const EdgeInsets.only(top: 10),
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: _S.surface,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: _S.border),
+                    ),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 10, vertical: 7),
+                    child: Row(children: [
+                      Text('school.filterPeriodLabel'.tr(),
+                          style: _st(11, FontWeight.w600, _S.hint)),
+                      const Spacer(),
+                      _PeriodNavBtn(
+                        icon: Icons.chevron_left_rounded,
+                        onTap: periodLoading ? null : _prev,
+                      ),
+                      const SizedBox(width: 6),
+                      // Month · Year display (or spinner)
+                      AnimatedSwitcher(
+                        duration: const Duration(milliseconds: 180),
+                        transitionBuilder: (child, anim) =>
+                            FadeTransition(opacity: anim, child: child),
+                        child: periodLoading
+                            ? const SizedBox(
+                                key: ValueKey('spin'),
+                                width: 108, height: 22,
+                                child: Center(
+                                  child: SizedBox(
+                                    width: 14, height: 14,
+                                    child: CircularProgressIndicator(
+                                        color: _S.primary, strokeWidth: 2),
+                                  ),
+                                ),
+                              )
+                            : SizedBox(
+                                key: ValueKey('$filterYear-$filterMonth'),
+                                width: 108,
+                                child: Text(
+                                  '${_monthNames()[filterMonth - 1]}  ·  $filterYear',
+                                  textAlign: TextAlign.center,
+                                  style: _st(13, FontWeight.w700, _S.ink),
+                                ),
+                              ),
+                      ),
+                      const SizedBox(width: 6),
+                      _PeriodNavBtn(
+                        icon: Icons.chevron_right_rounded,
+                        onTap: periodLoading ? null : _next,
+                      ),
+                    ]),
+                  ),
+                )
+              : const SizedBox.shrink(),
+        ),
+      ],
+    );
   }
+}
+
+class _PeriodNavBtn extends StatelessWidget {
+  final IconData      icon;
+  final VoidCallback? onTap;
+  const _PeriodNavBtn({required this.icon, this.onTap});
+
+  @override
+  Widget build(BuildContext context) => GestureDetector(
+    onTap: onTap,
+    child: AnimatedOpacity(
+      duration: const Duration(milliseconds: 150),
+      opacity: onTap == null ? 0.35 : 1.0,
+      child: Container(
+        width: 30, height: 30,
+        decoration: BoxDecoration(
+          color: _S.fieldBg,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: _S.border),
+        ),
+        alignment: Alignment.center,
+        child: Icon(icon, size: 18, color: _S.primary),
+      ),
+    ),
+  );
 }
 
 class _Chip extends StatelessWidget {
@@ -1832,92 +2151,6 @@ class _EmptyStudents extends StatelessWidget {
 }
 
 // ─── Events panel (right column — web only) ──────────────────────────────────
-class _EventsPanel extends StatelessWidget {
-  final double safeBottom;
-  const _EventsPanel({required this.safeBottom});
-
-  @override
-  Widget build(BuildContext context) {
-    return SingleChildScrollView(
-      padding: EdgeInsets.fromLTRB(0, 16, 0, safeBottom + 20),
-      child: Container(
-        decoration: BoxDecoration(
-          color: _S.surface,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: _S.border),
-          boxShadow: const [
-            BoxShadow(color: Color(0x081E293B), offset: Offset(0, 2), blurRadius: 12),
-          ],
-        ),
-        padding: const EdgeInsets.all(18),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Row(children: [
-            const Icon(Icons.event_rounded, color: _S.primary, size: 18),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Text('school.upcomingEvents'.tr(),
-                  style: _st(15, FontWeight.w700, _S.ink)),
-            ),
-          ]),
-          const SizedBox(height: 14),
-          _PanelEventCard(title: 'Exhibición de Salsa',  date: '15 Feb 2025', active: true),
-          const SizedBox(height: 10),
-          _PanelEventCard(title: 'Clase Especial Tango', date: '22 Feb 2025', active: false),
-        ]),
-      ),
-    );
-  }
-}
-
-class _PanelEventCard extends StatelessWidget {
-  final String title;
-  final String date;
-  final bool   active;
-
-  const _PanelEventCard({required this.title, required this.date, required this.active});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: active ? _S.primaryDim : const Color(0xFFF8FAFC),
-        borderRadius: BorderRadius.circular(10),
-      ),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text(title, style: _st(13, FontWeight.w600, _S.ink)),
-        const SizedBox(height: 5),
-        Row(children: [
-          Icon(Icons.calendar_today_rounded,
-              size: 12, color: active ? _S.muted : _S.hint),
-          const SizedBox(width: 6),
-          Text(date, style: _st(12, FontWeight.normal, active ? _S.muted : _S.hint)),
-        ]),
-        const SizedBox(height: 8),
-        MouseRegion(
-          cursor: SystemMouseCursors.click,
-          child: Container(
-            height: 32, width: double.infinity,
-            decoration: BoxDecoration(
-              gradient: active
-                  ? const LinearGradient(
-                      begin: Alignment.topLeft, end: Alignment.bottomRight,
-                      colors: [_S.primaryDark, _S.primaryLt])
-                  : null,
-              color: active ? null : const Color(0xFFF1F5F9),
-              borderRadius: BorderRadius.circular(8),
-              border: active ? null : Border.all(color: _S.border),
-            ),
-            alignment: Alignment.center,
-            child: Text('school.viewDetails'.tr(),
-                style: _st(12, FontWeight.w600, active ? Colors.white : _S.muted)),
-          ),
-        ),
-      ]),
-    );
-  }
-}
-
 // ─── Events tab ───────────────────────────────────────────────────────────────
 class _EventsTab extends StatefulWidget {
   final School school;
@@ -1978,7 +2211,7 @@ class _EventsTabState extends State<_EventsTab> {
               color: Colors.white, size: 18),
           const SizedBox(width: 10),
           Expanded(
-            child: Text('Evento creado con éxito',
+            child: Text('school.eventCreated'.tr(),
                 style: GoogleFonts.outfit(
                     fontSize: 14,
                     fontWeight: FontWeight.w500,
@@ -2088,13 +2321,15 @@ class _EventsTabState extends State<_EventsTab> {
     return LayoutBuilder(builder: (_, bc) {
       final isMobile = bc.maxWidth < 600;
       if (isMobile) {
+        final safeBottom = MediaQuery.of(context).viewPadding.bottom;
         return RefreshIndicator(
           color: _S.primary,
           onRefresh: _loadEvents,
           child: ListView.separated(
             physics: const AlwaysScrollableScrollPhysics(),
+            padding: EdgeInsets.only(bottom: safeBottom + 88),
             itemCount: list.length,
-            separatorBuilder: (_, __) => const SizedBox(height: 12),
+            separatorBuilder: (_, __) => const SizedBox(height: 14),
             itemBuilder: (_, i) => _EventCard(event: list[i], index: i, onUpdated: _loadEvents),
           ),
         );
@@ -2249,12 +2484,13 @@ class _EventCard extends StatefulWidget {
 }
 
 class _EventCardState extends State<_EventCard> {
-  bool                     _expanded       = false;
   bool                     _loadingDetails = false;
   bool                     _detailsLoaded  = false;
   List<EventPrice>         _prices         = [];
   List<EventParticipation> _participations = [];
   String?                  _detailsErr;
+  bool                     _cancelling     = false;
+  int?                     _unregistering;
 
   String _fmtDate(String iso) {
     try {
@@ -2296,9 +2532,33 @@ class _EventCardState extends State<_EventCard> {
     }
   }
 
-  void _toggleExpanded() {
-    setState(() => _expanded = !_expanded);
-    if (_expanded) _loadDetails();
+  Future<void> _showDetailsSheet() async {
+    if (!_detailsLoaded && !_loadingDetails) await _loadDetails();
+    if (!mounted) return;
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _EventDetailsSheet(
+        event:          widget.event,
+        prices:         _prices,
+        participations: _participations,
+        error:          _detailsErr,
+        loading:        _loadingDetails,
+        unregistering:  _unregistering,
+        fmtDate:        _fmtDate,
+        initials:       _initials,
+        onUnregister:   (p) async {
+          Navigator.pop(context);
+          await _handleUnregister(p);
+        },
+        onCancel: () async {
+          Navigator.pop(context);
+          await _handleCancel();
+        },
+      ),
+    );
   }
 
   Future<void> _handleEnroll() async {
@@ -2317,7 +2577,7 @@ class _EventCardState extends State<_EventCard> {
       await _loadDetails();
       if (!mounted) return;
       ScaffoldMessenger.of(context)
-          .showSnackBar(_successSnack('Inscripción realizada'));
+          .showSnackBar(_successSnack('school.enrollSuccess'.tr()));
     }
   }
 
@@ -2325,8 +2585,61 @@ class _EventCardState extends State<_EventCard> {
     final ok = await showEditEventDialog(context, event: widget.event);
     if (!mounted) return;
     if (ok) {
-      ScaffoldMessenger.of(context).showSnackBar(_successSnack('Evento actualizado'));
+      ScaffoldMessenger.of(context).showSnackBar(_successSnack('school.eventUpdated'.tr()));
       widget.onUpdated?.call();
+    }
+  }
+
+  Future<void> _handleCancel() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (_) => _CancelEventDialog(title: widget.event.title),
+    );
+    if (!(confirmed ?? false) || !mounted) return;
+    setState(() => _cancelling = true);
+    try {
+      await EventService.cancelEvent(widget.event.id);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(_successSnack('eventForm.cancelSuccess'.tr()));
+      widget.onUpdated?.call();
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _cancelling = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        _errorSnack(e is EventException ? e.message : 'eventForm.cancelError'.tr()),
+      );
+    }
+  }
+
+  Future<void> _handleUnregister(EventParticipation p) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (_) => _UnregisterParticipantDialog(studentName: p.studentName),
+    );
+    if (!(confirmed ?? false) || !mounted) return;
+    setState(() => _unregistering = p.id);
+    try {
+      // Step 1: return costume assignment if present (non-fatal if missing)
+      if (p.costumeAssignmentId != null) {
+        try {
+          await CostumeService.returnAssignment(p.costumeAssignmentId!);
+        } catch (_) {}
+      }
+      // Step 2: remove participation
+      await EventService.removeParticipation(p.id);
+      if (!mounted) return;
+      _detailsLoaded = false;
+      await _loadDetails();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(_successSnack('school.unregisterSuccess'.tr()));
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _unregistering = null);
+      ScaffoldMessenger.of(context).showSnackBar(
+        _errorSnack(e is EventException ? e.message : 'school.unregisterError'.tr()),
+      );
     }
   }
 
@@ -2355,12 +2668,12 @@ class _EventCardState extends State<_EventCard> {
 
   // ── Header ──────────────────────────────────────────────────────────────────
   Widget _buildHeader() {
+    final t = _isTabletScreen(context);
     return SizedBox(
-      height: 130,
+      height: t ? 160 : 130,
       child: Stack(
         fit: StackFit.expand,
         children: [
-          // Gradient background
           Container(
             decoration: const BoxDecoration(
               gradient: LinearGradient(
@@ -2370,32 +2683,33 @@ class _EventCardState extends State<_EventCard> {
               ),
             ),
           ),
-          // Content column (leaves room for edit btn)
           Padding(
-            padding: const EdgeInsets.fromLTRB(14, 12, 52, 14),
+            padding: t
+                ? const EdgeInsets.fromLTRB(18, 14, 64, 16)
+                : const EdgeInsets.fromLTRB(14, 12, 52, 14),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  padding: EdgeInsets.symmetric(
+                      horizontal: t ? 12 : 10, vertical: t ? 5 : 4),
                   decoration: BoxDecoration(
                     color: Colors.white.withValues(alpha: 0.15),
                     borderRadius: BorderRadius.circular(20),
                   ),
-                  child: Text('Evento',
-                      style: _st(11, FontWeight.w700, Colors.white)),
+                  child: Text('school.eventBadge'.tr(),
+                      style: _st(t ? 12 : 11, FontWeight.w700, Colors.white)),
                 ),
                 const Spacer(),
                 Text(
                   widget.event.title,
-                  style: _st(20, FontWeight.w800, Colors.white),
+                  style: _st(t ? 23 : 20, FontWeight.w800, Colors.white),
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                 ),
               ],
             ),
           ),
-          // Edit button (top-right)
           Positioned(
             top: 8, right: 8,
             child: MouseRegion(
@@ -2403,14 +2717,14 @@ class _EventCardState extends State<_EventCard> {
               child: GestureDetector(
                 onTap: _handleEdit,
                 child: Container(
-                  width: 32, height: 32,
+                  width: t ? 40 : 32, height: t ? 40 : 32,
                   decoration: BoxDecoration(
                     color: Colors.white.withValues(alpha: 0.2),
-                    borderRadius: BorderRadius.circular(8),
+                    borderRadius: BorderRadius.circular(t ? 10 : 8),
                   ),
                   alignment: Alignment.center,
-                  child: const Icon(Icons.edit_outlined,
-                      color: Colors.white, size: 15),
+                  child: Icon(Icons.edit_outlined,
+                      color: Colors.white, size: t ? 19 : 15),
                 ),
               ),
             ),
@@ -2422,8 +2736,11 @@ class _EventCardState extends State<_EventCard> {
 
   // ── Body ────────────────────────────────────────────────────────────────────
   Widget _buildBody() {
+    final t = _isTabletScreen(context);
     return Padding(
-      padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+      padding: t
+          ? const EdgeInsets.fromLTRB(18, 14, 18, 14)
+          : const EdgeInsets.fromLTRB(14, 12, 14, 12),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
@@ -2431,13 +2748,15 @@ class _EventCardState extends State<_EventCard> {
           _EventInfoRow(
             icon: Icons.calendar_today_rounded,
             text: _fmtDate(widget.event.startDate),
+            tablet: t,
           ),
-          const SizedBox(height: 4),
+          SizedBox(height: t ? 6 : 4),
           _EventInfoRow(
             icon: Icons.location_on_outlined,
             text: widget.event.venue.isNotEmpty ? widget.event.venue : '—',
+            tablet: t,
           ),
-          const SizedBox(height: 10),
+          SizedBox(height: t ? 14 : 10),
           // Avatars + count + Apuntarse
           Row(children: [
             _buildAvatarStack(),
@@ -2445,10 +2764,10 @@ class _EventCardState extends State<_EventCard> {
             Text(
               _detailsLoaded
                   ? (_participations.isEmpty
-                      ? 'Sé el primero'
-                      : '${_participations.length} inscritos')
-                  : '${widget.event.maxCapacity} plazas',
-              style: _st(12, FontWeight.normal, _S.muted),
+                      ? 'school.beFirst'.tr()
+                      : 'school.enrolledFmt'.tr(namedArgs: {'count': _participations.length.toString()}))
+                  : 'school.seatsFmt'.tr(namedArgs: {'count': widget.event.maxCapacity.toString()}),
+              style: _st(t ? 14 : 12, FontWeight.normal, _S.muted),
             ),
             const Spacer(),
             MouseRegion(
@@ -2456,54 +2775,95 @@ class _EventCardState extends State<_EventCard> {
               child: GestureDetector(
                 onTap: _handleEnroll,
                 child: Container(
-                  height: 36,
-                  padding: const EdgeInsets.symmetric(horizontal: 14),
+                  height: t ? 44 : 36,
+                  padding: EdgeInsets.symmetric(horizontal: t ? 18 : 14),
                   decoration: BoxDecoration(
                     gradient: const LinearGradient(
                       begin: Alignment.topLeft, end: Alignment.bottomRight,
                       colors: [Color(0xFF7C3AED), Color(0xFF9333EA)],
                     ),
-                    borderRadius: BorderRadius.circular(18),
+                    borderRadius: BorderRadius.circular(t ? 22 : 18),
                   ),
                   alignment: Alignment.center,
                   child: Text('school.joinBtn'.tr(),
-                      style: _st(12, FontWeight.w600, Colors.white)),
+                      style: _st(t ? 14 : 12, FontWeight.w600, Colors.white)),
                 ),
               ),
             ),
           ]),
-          const SizedBox(height: 8),
+          SizedBox(height: t ? 10 : 8),
           const Divider(color: _S.border, height: 1),
-          const SizedBox(height: 8),
-          // Expand toggle
-          GestureDetector(
-            onTap: _toggleExpanded,
-            behavior: HitTestBehavior.opaque,
-            child: Row(children: [
-              Icon(
-                _expanded
-                    ? Icons.expand_less_rounded
-                    : Icons.expand_more_rounded,
-                size: 16, color: _S.hint,
-              ),
-              const SizedBox(width: 4),
-              Text('school.eventDetailsToggle'.tr(),
-                  style: _st(13, FontWeight.w600, _S.primary)),
-              const Spacer(),
-              if (_loadingDetails)
-                const SizedBox(
-                  width: 12, height: 12,
-                  child: CircularProgressIndicator(
-                      color: _S.primary, strokeWidth: 2),
+          SizedBox(height: t ? 8 : 6),
+          // Action row: "Ver detalles" + cancel icon
+          Row(children: [
+            // Ver detalles button
+            Expanded(
+              child: MouseRegion(
+                cursor: SystemMouseCursors.click,
+                child: GestureDetector(
+                  onTap: _showDetailsSheet,
+                  child: Container(
+                    height: t ? 42 : 38,
+                    decoration: BoxDecoration(
+                      color: _S.primaryDim,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    alignment: Alignment.center,
+                    child: Row(mainAxisSize: MainAxisSize.min, children: [
+                      if (_loadingDetails)
+                        SizedBox(
+                          width: 14, height: 14,
+                          child: CircularProgressIndicator(
+                              color: _S.primary, strokeWidth: 2),
+                        )
+                      else
+                        Icon(Icons.info_outline_rounded,
+                            size: t ? 16 : 14, color: _S.primary),
+                      SizedBox(width: t ? 7 : 5),
+                      Text('school.eventDetailsToggle'.tr(),
+                          style: _st(t ? 13 : 12, FontWeight.w600, _S.primary)),
+                      const SizedBox(width: 4),
+                      Icon(Icons.arrow_outward_rounded,
+                          size: t ? 13 : 11, color: _S.primary),
+                    ]),
+                  ),
                 ),
-            ]),
-          ),
-          // Expandable details
-          AnimatedSize(
-            duration: const Duration(milliseconds: 250),
-            curve: Curves.easeInOut,
-            child: _expanded ? _buildDetails() : const SizedBox.shrink(),
-          ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            // Cancel icon button
+            Tooltip(
+              message: 'eventForm.cancelBtn'.tr(),
+              child: MouseRegion(
+                cursor: SystemMouseCursors.click,
+                child: GestureDetector(
+                  onTap: _cancelling ? null : _handleCancel,
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 150),
+                    width: t ? 42 : 38, height: t ? 42 : 38,
+                    decoration: BoxDecoration(
+                      color: _cancelling
+                          ? const Color(0xFFFEF2F2)
+                          : const Color(0xFFFFEBEB),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(
+                          color: const Color(0xFFDC2626)
+                              .withValues(alpha: _cancelling ? 0.15 : 0.4)),
+                    ),
+                    alignment: Alignment.center,
+                    child: _cancelling
+                        ? const SizedBox(
+                            width: 16, height: 16,
+                            child: CircularProgressIndicator(
+                                color: Color(0xFFDC2626), strokeWidth: 2))
+                        : Icon(Icons.cancel_outlined,
+                            size: t ? 18 : 16,
+                            color: const Color(0xFFDC2626)),
+                  ),
+                ),
+              ),
+            ),
+          ]),
         ],
       ),
     );
@@ -2548,82 +2908,6 @@ class _EventCardState extends State<_EventCard> {
     );
   }
 
-  Widget _buildDetails() {
-    if (_detailsErr != null) {
-      return Padding(
-        padding: const EdgeInsets.only(top: 10),
-        child: Text(_detailsErr!,
-            style: _st(12, FontWeight.normal, _S.errorRed)),
-      );
-    }
-    if (!_detailsLoaded) return const SizedBox.shrink();
-
-    return Padding(
-      padding: const EdgeInsets.only(top: 12),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text('school.pricesLabel'.tr(), style: _st(11, FontWeight.w700, _S.hint)),
-          const SizedBox(height: 6),
-          if (_prices.isEmpty)
-            Text('school.noPrices'.tr(),
-                style: _st(12, FontWeight.normal, _S.hint))
-          else
-            Wrap(
-              spacing: 6, runSpacing: 6,
-              children: _prices.map((p) => Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                decoration: BoxDecoration(
-                  color: _S.primaryDim,
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: Text(
-                  '${p.type} · €${p.amount.toStringAsFixed(2)}',
-                  style: _st(11, FontWeight.w600, _S.primary),
-                ),
-              )).toList(),
-            ),
-          const SizedBox(height: 10),
-          Text(
-            '${'school.participantsLabel'.tr()} (${_participations.length}/${widget.event.maxCapacity})',
-            style: _st(11, FontWeight.w700, _S.hint),
-          ),
-          const SizedBox(height: 6),
-          if (_participations.isEmpty)
-            Text('school.noEnrolled'.tr(), style: _st(12, FontWeight.normal, _S.hint))
-          else ...[
-            for (var i = 0; i < _participations.take(5).length; i++)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 6),
-                child: Row(children: [
-                  Container(
-                    width: 28, height: 28,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle, color: _S.avBg(i),
-                    ),
-                    alignment: Alignment.center,
-                    child: Text(_initials(_participations[i].studentName),
-                        style: _st(9, FontWeight.w700, _S.avTxt(i))),
-                  ),
-                  const SizedBox(width: 8),
-                  Flexible(
-                    child: Text(_participations[i].studentName,
-                        style: _st(12, FontWeight.w500, _S.ink),
-                        overflow: TextOverflow.ellipsis),
-                  ),
-                  const SizedBox(width: 6),
-                  _PaymentBadge(status: _participations[i].paymentStatus),
-                ]),
-              ),
-            if (_participations.length > 5)
-              Text('+${_participations.length - 5} más',
-                  style: _st(11, FontWeight.normal, _S.hint)),
-          ],
-        ],
-      ),
-    );
-  }
 }
 
 // ─── Payment badge ────────────────────────────────────────────────────────────
@@ -2649,20 +2933,539 @@ class _PaymentBadge extends StatelessWidget {
 }
 
 // ─── Event info row ───────────────────────────────────────────────────────────
+// ─── Withdraw enrollment confirmation dialog ──────────────────────────────────
+class _WithdrawEnrollmentDialog extends StatelessWidget {
+  final String studentName;
+  const _WithdrawEnrollmentDialog({required this.studentName});
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      backgroundColor: Colors.white,
+      contentPadding: const EdgeInsets.fromLTRB(24, 20, 24, 0),
+      actionsPadding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 52, height: 52,
+            decoration: BoxDecoration(
+              color: const Color(0xFFFEF2F2),
+              shape: BoxShape.circle,
+              border: Border.all(
+                  color: const Color(0xFFDC2626).withValues(alpha: 0.2)),
+            ),
+            alignment: Alignment.center,
+            child: const Icon(Icons.person_remove_outlined,
+                color: Color(0xFFDC2626), size: 26),
+          ),
+          const SizedBox(height: 16),
+          Text('school.withdrawConfirmTitle'.tr(),
+              style: _st(18, FontWeight.w700, _S.ink),
+              textAlign: TextAlign.center),
+          const SizedBox(height: 8),
+          Text(studentName,
+              style: _st(13, FontWeight.w600, _S.primary),
+              textAlign: TextAlign.center,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis),
+          const SizedBox(height: 8),
+          Text('school.withdrawConfirmDesc'.tr(),
+              style: _st(13, FontWeight.normal, _S.muted),
+              textAlign: TextAlign.center),
+          const SizedBox(height: 4),
+        ],
+      ),
+      actions: [
+        Row(children: [
+          Expanded(
+            child: GestureDetector(
+              onTap: () => Navigator.pop(context, false),
+              child: Container(
+                height: 42,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: _S.border),
+                ),
+                alignment: Alignment.center,
+                child: Text('form.cancel'.tr(),
+                    style: _st(14, FontWeight.w600, _S.muted)),
+              ),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: GestureDetector(
+              onTap: () => Navigator.pop(context, true),
+              child: Container(
+                height: 42,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFDC2626),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                alignment: Alignment.center,
+                child: Text('school.withdrawConfirmBtn'.tr(),
+                    style: _st(14, FontWeight.w600, Colors.white)),
+              ),
+            ),
+          ),
+        ]),
+      ],
+    );
+  }
+}
+
+// ─── Unregister participant confirmation dialog ───────────────────────────────
+class _UnregisterParticipantDialog extends StatelessWidget {
+  final String studentName;
+  const _UnregisterParticipantDialog({required this.studentName});
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      backgroundColor: Colors.white,
+      contentPadding: const EdgeInsets.fromLTRB(24, 20, 24, 0),
+      actionsPadding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 52, height: 52,
+            decoration: BoxDecoration(
+              color: const Color(0xFFFEF2F2),
+              shape: BoxShape.circle,
+              border: Border.all(
+                  color: const Color(0xFFDC2626).withValues(alpha: 0.2)),
+            ),
+            alignment: Alignment.center,
+            child: const Icon(Icons.event_busy_rounded,
+                color: Color(0xFFDC2626), size: 26),
+          ),
+          const SizedBox(height: 16),
+          Text('school.unregisterTitle'.tr(),
+              style: _st(18, FontWeight.w700, _S.ink),
+              textAlign: TextAlign.center),
+          const SizedBox(height: 8),
+          Text(studentName,
+              style: _st(13, FontWeight.w600, _S.primary),
+              textAlign: TextAlign.center,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis),
+          const SizedBox(height: 8),
+          Text('school.unregisterDesc'.tr(),
+              style: _st(13, FontWeight.normal, _S.muted),
+              textAlign: TextAlign.center),
+          const SizedBox(height: 4),
+        ],
+      ),
+      actions: [
+        Row(children: [
+          Expanded(
+            child: GestureDetector(
+              onTap: () => Navigator.pop(context, false),
+              child: Container(
+                height: 42,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: _S.border),
+                ),
+                alignment: Alignment.center,
+                child: Text('form.cancel'.tr(),
+                    style: _st(14, FontWeight.w600, _S.muted)),
+              ),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: GestureDetector(
+              onTap: () => Navigator.pop(context, true),
+              child: Container(
+                height: 42,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFDC2626),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                alignment: Alignment.center,
+                child: Text('school.unregisterConfirm'.tr(),
+                    style: _st(14, FontWeight.w600, Colors.white)),
+              ),
+            ),
+          ),
+        ]),
+      ],
+    );
+  }
+}
+
+// ─── Event details bottom sheet ──────────────────────────────────────────────
+class _EventDetailsSheet extends StatelessWidget {
+  final Event                              event;
+  final List<EventPrice>                   prices;
+  final List<EventParticipation>           participations;
+  final String?                            error;
+  final bool                               loading;
+  final int?                               unregistering;
+  final String Function(String)            fmtDate;
+  final String Function(String)            initials;
+  final Future<void> Function(EventParticipation) onUnregister;
+  final VoidCallback                       onCancel;
+
+  const _EventDetailsSheet({
+    required this.event, required this.prices, required this.participations,
+    this.error, this.loading = false, this.unregistering,
+    required this.fmtDate, required this.initials,
+    required this.onUnregister, required this.onCancel,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return DraggableScrollableSheet(
+      initialChildSize: 0.6,
+      minChildSize:     0.35,
+      maxChildSize:     0.92,
+      expand:           false,
+      builder: (_, scrollCtrl) => Container(
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        child: Column(
+          children: [
+            // ── Drag handle ────────────────────────────────────────────────
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 12),
+              child: Container(
+                width: 40, height: 4,
+                decoration: BoxDecoration(
+                  color: _S.border,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            // ── Event title + info ─────────────────────────────────────────
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(event.title,
+                      style: _st(18, FontWeight.w800, _S.ink),
+                      maxLines: 2, overflow: TextOverflow.ellipsis),
+                  const SizedBox(height: 6),
+                  _EventInfoRow(
+                    icon: Icons.calendar_today_rounded,
+                    text: fmtDate(event.startDate),
+                  ),
+                  const SizedBox(height: 3),
+                  _EventInfoRow(
+                    icon: Icons.location_on_outlined,
+                    text: event.venue.isNotEmpty ? event.venue : '—',
+                  ),
+                ],
+              ),
+            ),
+            const Divider(height: 1, color: _S.border),
+            // ── Scrollable content ─────────────────────────────────────────
+            Expanded(
+              child: ListView(
+                controller: scrollCtrl,
+                padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+                children: [
+                  if (loading)
+                    const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 40),
+                      child: Center(child: CircularProgressIndicator(
+                          color: _S.primary, strokeWidth: 2.5)),
+                    )
+                  else if (error != null)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 24),
+                      child: Text(error!,
+                          style: _st(13, FontWeight.normal, _S.errorRed),
+                          textAlign: TextAlign.center),
+                    )
+                  else ...[
+                    // Prices
+                    _SheetSection(label: 'school.pricesLabel'.tr()),
+                    const SizedBox(height: 8),
+                    if (prices.isEmpty)
+                      Text('school.noPrices'.tr(),
+                          style: _st(13, FontWeight.normal, _S.hint))
+                    else
+                      Wrap(
+                        spacing: 6, runSpacing: 6,
+                        children: prices.map((p) => Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 12, vertical: 6),
+                          decoration: BoxDecoration(
+                            color: _S.primaryDim,
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: Text('${p.type} · €${p.amount.toStringAsFixed(2)}',
+                              style: _st(12, FontWeight.w600, _S.primary)),
+                        )).toList(),
+                      ),
+                    const SizedBox(height: 20),
+                    // Participants
+                    Row(children: [
+                      _SheetSection(label: 'school.participantsLabel'.tr()),
+                      const SizedBox(width: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 8, vertical: 3),
+                        decoration: BoxDecoration(
+                          color: _S.primaryDim,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Text(
+                          '${participations.length}/${event.maxCapacity}',
+                          style: _st(11, FontWeight.w700, _S.primary),
+                        ),
+                      ),
+                    ]),
+                    const SizedBox(height: 10),
+                    if (participations.isEmpty)
+                      Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 8),
+                        child: Text('school.noEnrolled'.tr(),
+                            style: _st(13, FontWeight.normal, _S.hint)),
+                      )
+                    else
+                      for (var i = 0; i < participations.length; i++)
+                        _ParticipantRow(
+                          participation: participations[i],
+                          index:         i,
+                          unregistering: unregistering,
+                          initials:      initials,
+                          onUnregister:  onUnregister,
+                        ),
+                    const SizedBox(height: 24),
+                    const Divider(height: 1, color: _S.border),
+                    const SizedBox(height: 16),
+                    // Cancel event
+                    MouseRegion(
+                      cursor: SystemMouseCursors.click,
+                      child: GestureDetector(
+                        onTap: onCancel,
+                        child: Container(
+                          height: 50,
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFFFEBEB),
+                            borderRadius: BorderRadius.circular(14),
+                            border: Border.all(
+                                color: const Color(0xFFDC2626)
+                                    .withValues(alpha: 0.45),
+                                width: 1.5),
+                          ),
+                          alignment: Alignment.center,
+                          child: Row(mainAxisSize: MainAxisSize.min, children: [
+                            const Icon(Icons.cancel_outlined,
+                                size: 18, color: Color(0xFFDC2626)),
+                            const SizedBox(width: 8),
+                            Text('eventForm.cancelBtn'.tr(),
+                                style: _st(14, FontWeight.w700,
+                                    const Color(0xFFDC2626))),
+                          ]),
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SheetSection extends StatelessWidget {
+  final String label;
+  const _SheetSection({required this.label});
+  @override
+  Widget build(BuildContext context) => Text(label,
+      style: _st(11, FontWeight.w700, _S.hint, ls: 0.6));
+}
+
+class _ParticipantRow extends StatelessWidget {
+  final EventParticipation                      participation;
+  final int                                     index;
+  final int?                                    unregistering;
+  final String Function(String)                 initials;
+  final Future<void> Function(EventParticipation) onUnregister;
+
+  const _ParticipantRow({
+    required this.participation, required this.index,
+    this.unregistering, required this.initials, required this.onUnregister,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isUnregistering = unregistering == participation.id;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Row(children: [
+        Container(
+          width: 40, height: 40,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle, color: _S.avBg(index),
+          ),
+          alignment: Alignment.center,
+          child: Text(initials(participation.studentName),
+              style: _st(12, FontWeight.w700, _S.avTxt(index))),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(participation.studentName,
+                  style: _st(14, FontWeight.w600, _S.ink),
+                  overflow: TextOverflow.ellipsis),
+              const SizedBox(height: 2),
+              _PaymentBadge(status: participation.paymentStatus),
+            ],
+          ),
+        ),
+        const SizedBox(width: 10),
+        if (isUnregistering)
+          const SizedBox(
+            width: 20, height: 20,
+            child: CircularProgressIndicator(
+                color: Color(0xFFDC2626), strokeWidth: 2),
+          )
+        else
+          GestureDetector(
+            onTap: () => onUnregister(participation),
+            child: Container(
+              height: 36,
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFEF2F2),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(
+                    color: const Color(0xFFDC2626).withValues(alpha: 0.3)),
+              ),
+              alignment: Alignment.center,
+              child: Row(mainAxisSize: MainAxisSize.min, children: [
+                const Icon(Icons.person_remove_outlined,
+                    size: 14, color: Color(0xFFDC2626)),
+                const SizedBox(width: 5),
+                Text('school.unregisterBtn'.tr(),
+                    style: _st(12, FontWeight.w600, const Color(0xFFDC2626))),
+              ]),
+            ),
+          ),
+      ]),
+    );
+  }
+}
+
+// ─── Cancel event confirmation dialog ────────────────────────────────────────
+class _CancelEventDialog extends StatelessWidget {
+  final String title;
+  const _CancelEventDialog({required this.title});
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      backgroundColor: Colors.white,
+      contentPadding: const EdgeInsets.fromLTRB(24, 20, 24, 0),
+      actionsPadding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 52, height: 52,
+            decoration: BoxDecoration(
+              color: const Color(0xFFFEF2F2),
+              shape: BoxShape.circle,
+              border: Border.all(
+                  color: const Color(0xFFDC2626).withValues(alpha: 0.2)),
+            ),
+            alignment: Alignment.center,
+            child: const Icon(Icons.cancel_outlined,
+                color: Color(0xFFDC2626), size: 26),
+          ),
+          const SizedBox(height: 16),
+          Text('eventForm.cancelTitle'.tr(),
+              style: _st(18, FontWeight.w700, _S.ink),
+              textAlign: TextAlign.center),
+          const SizedBox(height: 10),
+          Text(
+            title,
+            style: _st(13, FontWeight.w600, _S.primary),
+            textAlign: TextAlign.center,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+          ),
+          const SizedBox(height: 8),
+          Text('eventForm.cancelDesc'.tr(),
+              style: _st(13, FontWeight.normal, _S.muted),
+              textAlign: TextAlign.center),
+          const SizedBox(height: 4),
+        ],
+      ),
+      actions: [
+        Row(children: [
+          Expanded(
+            child: GestureDetector(
+              onTap: () => Navigator.pop(context, false),
+              child: Container(
+                height: 42,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: _S.border),
+                ),
+                alignment: Alignment.center,
+                child: Text('form.cancel'.tr(),
+                    style: _st(14, FontWeight.w600, _S.muted)),
+              ),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: GestureDetector(
+              onTap: () => Navigator.pop(context, true),
+              child: Container(
+                height: 42,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFDC2626),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                alignment: Alignment.center,
+                child: Text('eventForm.cancelConfirm'.tr(),
+                    style: _st(14, FontWeight.w600, Colors.white)),
+              ),
+            ),
+          ),
+        ]),
+      ],
+    );
+  }
+}
+
 class _EventInfoRow extends StatelessWidget {
   final IconData icon;
   final String   text;
+  final bool     tablet;
 
-  const _EventInfoRow({required this.icon, required this.text});
+  const _EventInfoRow({required this.icon, required this.text, this.tablet = false});
 
   @override
   Widget build(BuildContext context) {
     return Row(children: [
-      Icon(icon, size: 14, color: _S.hint),
-      const SizedBox(width: 6),
+      Icon(icon, size: tablet ? 16 : 14, color: _S.hint),
+      SizedBox(width: tablet ? 8 : 6),
       Expanded(
         child: Text(text,
-            style: _st(13, FontWeight.normal, _S.muted),
+            style: _st(tablet ? 15 : 13, FontWeight.normal, _S.muted),
             overflow: TextOverflow.ellipsis),
       ),
     ]);
@@ -2729,7 +3532,7 @@ class _GroupsTabState extends State<_GroupsTab> {
               color: Colors.white, size: 18),
           const SizedBox(width: 10),
           Expanded(
-            child: Text('Grupo creado con éxito',
+            child: Text('school.groupCreated'.tr(),
                 style: GoogleFonts.outfit(
                     fontSize: 14,
                     fontWeight: FontWeight.w500,
@@ -2758,7 +3561,7 @@ class _GroupsTabState extends State<_GroupsTab> {
           // ── Header ───────────────────────────────────────────────────────
           if (!isMobile)
             Row(children: [
-              Text('Grupos',
+              Text('school.tabGroups'.tr(),
                   style: _st(20, FontWeight.w800, _S.ink, ls: -0.4)),
               const Spacer(),
               SizedBox(
@@ -2774,7 +3577,7 @@ class _GroupsTabState extends State<_GroupsTab> {
             ])
           else ...[
             Row(children: [
-              Text('Grupos',
+              Text('school.tabGroups'.tr(),
                   style: _st(20, FontWeight.w800, _S.ink, ls: -0.4)),
               const Spacer(),
               _NewGroupButton(schoolId: widget.school.id, onSuccess: _onGroupAdded),
@@ -3045,7 +3848,7 @@ class _GroupCardState extends State<_GroupCard> {
       if (!mounted) return;
       setState(() {
         _loadingEnrollments = false;
-        _enrollmentsErr     = 'Error al cargar inscritos';
+        _enrollmentsErr     = 'school.enrollLoadError'.tr();
       });
     }
   }
@@ -3060,7 +3863,7 @@ class _GroupCardState extends State<_GroupCard> {
     if (!mounted) return;
     if (updated) {
       ScaffoldMessenger.of(context).showSnackBar(
-          _successSnack('Grupo actualizado con éxito'));
+          _successSnack('school.groupUpdated'.tr()));
       widget.onUpdated?.call();
     }
   }
@@ -3084,11 +3887,16 @@ class _GroupCardState extends State<_GroupCard> {
       await _loadEnrollments();
       if (!mounted) return;
       ScaffoldMessenger.of(context)
-          .showSnackBar(_successSnack('Alumno inscrito'));
+          .showSnackBar(_successSnack('school.studentEnrolled'.tr()));
     }
   }
 
   Future<void> _handleWithdraw(GroupEnrollment enrollment) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (_) => _WithdrawEnrollmentDialog(studentName: enrollment.studentName),
+    );
+    if (!(confirmed ?? false) || !mounted) return;
     try {
       await GroupService.withdrawEnrollment(enrollment.id);
       if (!mounted) return;
@@ -3097,11 +3905,11 @@ class _GroupCardState extends State<_GroupCard> {
       await _loadEnrollments();
       if (!mounted) return;
       ScaffoldMessenger.of(context)
-          .showSnackBar(_successSnack('Alumno dado de baja'));
+          .showSnackBar(_successSnack('school.withdrawSuccess'.tr()));
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        _errorSnack(e is GroupException ? e.message : 'Error al dar de baja'),
+        _errorSnack(e is GroupException ? e.message : 'school.withdrawError'.tr()),
       );
     }
   }
@@ -3131,11 +3939,12 @@ class _GroupCardState extends State<_GroupCard> {
   }
 
   Widget _buildHeader() {
-    final ls      = _levelStyle(widget.group.level);
-    final colors  = _groupGradient(widget.group.danceStyle);
+    final t      = _isTabletScreen(context);
+    final ls     = _levelStyle(widget.group.level);
+    final colors = _groupGradient(widget.group.danceStyle);
 
     return SizedBox(
-      height: 110,
+      height: t ? 140 : 110,
       child: Stack(
         fit: StackFit.expand,
         children: [
@@ -3149,14 +3958,16 @@ class _GroupCardState extends State<_GroupCard> {
             ),
           ),
           Padding(
-            padding: const EdgeInsets.fromLTRB(14, 12, 52, 12),
+            padding: t
+                ? const EdgeInsets.fromLTRB(18, 14, 64, 14)
+                : const EdgeInsets.fromLTRB(14, 12, 52, 12),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Row(children: [
                   Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 10, vertical: 4),
+                    padding: EdgeInsets.symmetric(
+                        horizontal: t ? 12 : 10, vertical: t ? 5 : 4),
                     decoration: BoxDecoration(
                       color: Colors.white.withValues(alpha: 0.15),
                       borderRadius: BorderRadius.circular(20),
@@ -3164,26 +3975,26 @@ class _GroupCardState extends State<_GroupCard> {
                     child: Text(
                       widget.group.danceStyle.isNotEmpty
                           ? widget.group.danceStyle
-                          : 'Grupo',
-                      style: _st(11, FontWeight.w700, Colors.white),
+                          : 'school.groupBadge'.tr(),
+                      style: _st(t ? 12 : 11, FontWeight.w700, Colors.white),
                     ),
                   ),
                   const Spacer(),
                   Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 10, vertical: 4),
+                    padding: EdgeInsets.symmetric(
+                        horizontal: t ? 12 : 10, vertical: t ? 5 : 4),
                     decoration: BoxDecoration(
                       color: ls.bg,
                       borderRadius: BorderRadius.circular(20),
                     ),
                     child: Text(widget.group.level,
-                        style: _st(11, FontWeight.w700, ls.text)),
+                        style: _st(t ? 12 : 11, FontWeight.w700, ls.text)),
                   ),
                 ]),
                 const Spacer(),
                 Text(
                   widget.group.name,
-                  style: _st(18, FontWeight.w800, Colors.white),
+                  style: _st(t ? 22 : 18, FontWeight.w800, Colors.white),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
@@ -3197,14 +4008,14 @@ class _GroupCardState extends State<_GroupCard> {
               child: GestureDetector(
                 onTap: _handleEdit,
                 child: Container(
-                  width: 32, height: 32,
+                  width: t ? 40 : 32, height: t ? 40 : 32,
                   decoration: BoxDecoration(
                     color: Colors.white.withValues(alpha: 0.2),
-                    borderRadius: BorderRadius.circular(8),
+                    borderRadius: BorderRadius.circular(t ? 10 : 8),
                   ),
                   alignment: Alignment.center,
-                  child: const Icon(Icons.edit_outlined,
-                      color: Colors.white, size: 15),
+                  child: Icon(Icons.edit_outlined,
+                      color: Colors.white, size: t ? 19 : 15),
                 ),
               ),
             ),
@@ -3215,30 +4026,33 @@ class _GroupCardState extends State<_GroupCard> {
   }
 
   Widget _buildBody() {
+    final t = _isTabletScreen(context);
     return Padding(
-      padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
+      padding: t
+          ? const EdgeInsets.fromLTRB(18, 12, 18, 12)
+          : const EdgeInsets.fromLTRB(14, 10, 14, 10),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
           // Schedule + count
           Row(children: [
-            const Icon(Icons.schedule_rounded, size: 14, color: _S.hint),
-            const SizedBox(width: 6),
+            Icon(Icons.schedule_rounded, size: t ? 16 : 14, color: _S.hint),
+            SizedBox(width: t ? 8 : 6),
             Flexible(
               child: Text(widget.group.schedule,
-                  style: _st(12, FontWeight.normal, _S.muted),
+                  style: _st(t ? 14 : 12, FontWeight.normal, _S.muted),
                   overflow: TextOverflow.ellipsis),
             ),
             const SizedBox(width: 8),
             Text(
               _enrollmentsLoaded
                   ? '${_enrollments.length}/${widget.group.maxCapacity}'
-                  : '${widget.group.maxCapacity} plazas',
-              style: _st(12, FontWeight.w600, _S.muted),
+                  : 'school.seatsFmt'.tr(namedArgs: {'count': widget.group.maxCapacity.toString()}),
+              style: _st(t ? 14 : 12, FontWeight.w600, _S.muted),
             ),
           ]),
-          const SizedBox(height: 8),
+          SizedBox(height: t ? 12 : 8),
           // Avatars + count + Inscribir
           Row(children: [
             _buildAvatarStack(),
@@ -3246,10 +4060,10 @@ class _GroupCardState extends State<_GroupCard> {
             Text(
               _enrollmentsLoaded
                   ? (_enrollments.isEmpty
-                      ? 'Sé el primero'
-                      : '${_enrollments.length} inscritos')
-                  : '${widget.group.maxCapacity} plazas',
-              style: _st(12, FontWeight.normal, _S.muted),
+                      ? 'school.beFirst'.tr()
+                      : 'school.enrolledFmt'.tr(namedArgs: {'count': _enrollments.length.toString()}))
+                  : 'school.seatsFmt'.tr(namedArgs: {'count': widget.group.maxCapacity.toString()}),
+              style: _st(t ? 14 : 12, FontWeight.normal, _S.muted),
             ),
             const Spacer(),
             MouseRegion(
@@ -3257,15 +4071,15 @@ class _GroupCardState extends State<_GroupCard> {
               child: GestureDetector(
                 onTap: _handleEnroll,
                 child: Container(
-                  height: 40,
-                  padding: const EdgeInsets.symmetric(horizontal: 18),
+                  height: t ? 48 : 40,
+                  padding: EdgeInsets.symmetric(horizontal: t ? 22 : 18),
                   decoration: BoxDecoration(
                     gradient: const LinearGradient(
                       begin: Alignment.topLeft,
                       end: Alignment.bottomRight,
                       colors: [Color(0xFF16A34A), Color(0xFF22C55E)],
                     ),
-                    borderRadius: BorderRadius.circular(20),
+                    borderRadius: BorderRadius.circular(t ? 24 : 20),
                     boxShadow: const [
                       BoxShadow(color: Color(0x3316A34A),
                           offset: Offset(0, 3), blurRadius: 8),
@@ -3273,28 +4087,26 @@ class _GroupCardState extends State<_GroupCard> {
                   ),
                   alignment: Alignment.center,
                   child: Text('school.enrollBtn'.tr(),
-                      style: _st(13, FontWeight.w600, Colors.white)),
+                      style: _st(t ? 15 : 13, FontWeight.w600, Colors.white)),
                 ),
               ),
             ),
           ]),
-          const SizedBox(height: 8),
+          SizedBox(height: t ? 10 : 8),
           const Divider(color: _S.border, height: 1),
-          const SizedBox(height: 6),
+          SizedBox(height: t ? 8 : 6),
           // Expand toggle
           GestureDetector(
             onTap: _toggleExpanded,
             behavior: HitTestBehavior.opaque,
             child: Row(children: [
               Icon(
-                _expanded
-                    ? Icons.expand_less_rounded
-                    : Icons.expand_more_rounded,
-                size: 16, color: _S.hint,
+                _expanded ? Icons.expand_less_rounded : Icons.expand_more_rounded,
+                size: t ? 20 : 16, color: _S.hint,
               ),
-              const SizedBox(width: 4),
+              SizedBox(width: t ? 6 : 4),
               Text('school.enrolledStudents'.tr(),
-                  style: _st(13, FontWeight.w600, _S.primary)),
+                  style: _st(t ? 15 : 13, FontWeight.w600, _S.primary)),
               const Spacer(),
               if (_loadingEnrollments)
                 const SizedBox(
@@ -3324,14 +4136,14 @@ class _GroupCardState extends State<_GroupCard> {
                     await GroupService.deleteGroup(widget.group.id);
                     if (!mounted) return;
                     ScaffoldMessenger.of(context)
-                        .showSnackBar(_successSnack('Grupo eliminado'));
+                        .showSnackBar(_successSnack('school.groupDeleted'.tr()));
                     widget.onUpdated?.call();
                   } catch (e) {
                     if (!mounted) return;
                     ScaffoldMessenger.of(context).showSnackBar(
                       _errorSnack(e is GroupException
                           ? e.message
-                          : 'Error al eliminar'),
+                          : 'groupForm.deleteError'.tr()),
                     );
                   }
                 },
@@ -3484,7 +4296,7 @@ class _GroupCardState extends State<_GroupCard> {
               child: Padding(
                 padding: const EdgeInsets.only(top: 4),
                 child: Row(mainAxisSize: MainAxisSize.min, children: [
-                  Text('Ver $remaining más',
+                  Text('school.seeMoreFmt'.tr(args: [remaining.toString()]),
                       style: _st(12, FontWeight.w600, _S.primary)),
                   const SizedBox(width: 4),
                   const Icon(Icons.arrow_forward_rounded,
@@ -3498,7 +4310,7 @@ class _GroupCardState extends State<_GroupCard> {
               child: Padding(
                 padding: const EdgeInsets.only(top: 4),
                 child: Row(mainAxisSize: MainAxisSize.min, children: [
-                  Text('Ver menos',
+                  Text('school.seeLess'.tr(),
                       style: _st(12, FontWeight.w600, _S.muted)),
                   const SizedBox(width: 4),
                   const Icon(Icons.keyboard_arrow_up_rounded,

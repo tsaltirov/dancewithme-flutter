@@ -55,6 +55,9 @@ class AuthService {
 
   static const _storage = FlutterSecureStorage();
 
+  // Prevents concurrent refresh calls — only one in-flight at a time.
+  static Completer<String?>? _refreshCompleter;
+
   static String get _baseUrl {
     final raw = dotenv.env['BACKEND_URL'] ?? '';
     if (raw.isEmpty) throw const AuthException('auth.errorConfig');
@@ -155,8 +158,118 @@ class AuthService {
     }
   }
 
+  // ── JWT expiry check ──────────────────────────────────────────────────────
+  // Decodes the exp claim without verifying signature (no crypto needed).
+  // Returns true when the token is expired or will expire within 60 seconds.
+  static bool _isExpiredOrSoon(String token) {
+    try {
+      final parts = token.split('.');
+      if (parts.length < 2) return true;
+      final payload = jsonDecode(
+        utf8.decode(base64Url.decode(base64Url.normalize(parts[1]))),
+      ) as Map<String, dynamic>;
+      final exp = (payload['exp'] as num?)?.toInt();
+      if (exp == null) return false;
+      final nowSec = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+      return nowSec >= exp - 60; // 60-second buffer before actual expiry
+    } catch (_) {
+      return false;
+    }
+  }
+
+  // ── Refresh — POST /api/v1/auth/refresh ───────────────────────────────────
+  // Uses a Completer so that concurrent callers all wait for the same
+  // in-flight request instead of each firing a separate refresh.
+  static Future<String?> _tryRefresh() async {
+    // If a refresh is already in progress, wait for its result.
+    if (_refreshCompleter != null) {
+      return _refreshCompleter!.future;
+    }
+
+    _refreshCompleter = Completer<String?>();
+    String? result;
+
+    try {
+      final refreshToken = await _safeRead(_kRefreshToken);
+      if (refreshToken == null || refreshToken.isEmpty) {
+        if (kDebugMode) debugPrint('[AuthService] No refresh token — logging out');
+        await logout();
+        _refreshCompleter!.complete(null);
+        return null;
+      }
+
+      final http.Response res;
+      try {
+        res = await http.post(
+          Uri.parse('$_baseUrl/api/v1/auth/refresh'),
+          headers: {'Content-Type': 'application/json; charset=UTF-8'},
+          body: jsonEncode({'refreshToken': refreshToken}),
+        ).timeout(const Duration(seconds: 15));
+      } on TimeoutException {
+        if (kDebugMode) debugPrint('[AuthService] Refresh timed out');
+        _refreshCompleter!.complete(null);
+        return null;
+      } on SocketException {
+        if (kDebugMode) debugPrint('[AuthService] Refresh — no connection');
+        _refreshCompleter!.complete(null);
+        return null;
+      }
+
+      if (kDebugMode) {
+        debugPrint('[AuthService] POST /api/v1/auth/refresh → ${res.statusCode}');
+      }
+
+      if (res.statusCode == 200 || res.statusCode == 201) {
+        final body      = jsonDecode(res.body) as Map<String, dynamic>;
+        final data      = body['data'] as Map<String, dynamic>?;
+        final newAccess  = data?['accessToken']  as String?;
+        final newRefresh = data?['refreshToken'] as String?;
+
+        if (newAccess == null || newAccess.isEmpty) {
+          if (kDebugMode) debugPrint('[AuthService] Refresh returned empty token — logging out');
+          await logout();
+          _refreshCompleter!.complete(null);
+          return null;
+        }
+
+        await Future.wait([
+          _storage.write(key: _kAccessToken, value: newAccess),
+          if (newRefresh != null && newRefresh.isNotEmpty)
+            _storage.write(key: _kRefreshToken, value: newRefresh),
+        ]);
+
+        if (kDebugMode) debugPrint('[AuthService] Token refreshed successfully');
+        result = newAccess;
+      } else {
+        // 401/403 means refresh token is also expired → force logout
+        if (kDebugMode) {
+          debugPrint('[AuthService] Refresh rejected (${res.statusCode}) — logging out');
+        }
+        await logout();
+      }
+    } catch (e) {
+      if (kDebugMode) debugPrint('[AuthService] Refresh unexpected error: $e');
+    } finally {
+      _refreshCompleter!.complete(result);
+      _refreshCompleter = null;
+    }
+
+    return result;
+  }
+
   // ── Accessors ─────────────────────────────────────────────────────────────
-  static Future<String?> getAccessToken()  => _safeRead(_kAccessToken);
+  // getAccessToken() proactively refreshes when the JWT is about to expire.
+  // All services call this method — refresh is fully transparent to them.
+  static Future<String?> getAccessToken() async {
+    final token = await _safeRead(_kAccessToken);
+    if (token == null) return null;
+    if (_isExpiredOrSoon(token)) {
+      if (kDebugMode) debugPrint('[AuthService] Access token expired/near-expiry — refreshing');
+      return _tryRefresh();
+    }
+    return token;
+  }
+
   static Future<String?> getRefreshToken() => _safeRead(_kRefreshToken);
   static Future<bool>    isLoggedIn() async => (await getAccessToken()) != null;
 

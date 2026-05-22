@@ -20,9 +20,18 @@ const _kPaidText   = Color(0xFF16A34A);
 const _kPendBg     = Color(0xFFFFF7ED);
 const _kPendText   = Color(0xFFD97706);
 
-const _kMonths = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
-const _kMethods     = ['EFECTIVO','TRANSFERENCIA','TARJETA','DOMICILIACION'];
-const _kMethodLabel = ['Efectivo','Transferencia','Tarjeta','Domiciliación'];
+const _kMethods = ['EFECTIVO','TRANSFERENCIA','TARJETA','DOMICILIACION'];
+
+List<String> _months()    => 'ui.monthsShort'.tr().split(',');
+String _methodLabel(int i) {
+  const keys = [
+    'payment.methodCash',
+    'payment.methodTransfer',
+    'payment.methodCard',
+    'payment.methodDirectDebit',
+  ];
+  return i < keys.length ? keys[i].tr() : _kMethods[i];
+}
 
 TextStyle _ot(double sz, FontWeight w, Color c) =>
     GoogleFonts.outfit(fontSize: sz, fontWeight: w, color: c);
@@ -285,19 +294,13 @@ class _PayStudentDialogState extends State<_PayStudentDialog> {
             style: _ot(14, FontWeight.w700, _kInk)),
         const SizedBox(height: 14),
 
-        // Year pills
+        // Year wheel
         Text('payment.yearLabel'.tr(), style: _ot(12, FontWeight.w600, _kMuted)),
         const SizedBox(height: 6),
-        Row(children: [
-          for (var offset = -1; offset <= 1; offset++) ...[
-            if (offset != -1) const SizedBox(width: 8),
-            _YearPill(
-              year:     DateTime.now().year + offset,
-              selected: _year == DateTime.now().year + offset,
-              onTap:    () => setState(() => _year = DateTime.now().year + offset),
-            ),
-          ],
-        ]),
+        _YearWheelPicker(
+          selected:  _year,
+          onChanged: (y) => setState(() => _year = y),
+        ),
         const SizedBox(height: 14),
 
         // Month grid 4×3
@@ -325,7 +328,7 @@ class _PayStudentDialogState extends State<_PayStudentDialog> {
                 ),
               ),
               alignment: Alignment.center,
-              child: Text(_kMonths[i],
+              child: Text(_months()[i],
                   style: _ot(12, FontWeight.w600,
                       _month == i + 1 ? Colors.white : _kMuted)),
             ),
@@ -367,7 +370,7 @@ class _PayStudentDialogState extends State<_PayStudentDialog> {
                     color: sel ? _kPrimary : _kBorder,
                   ),
                 ),
-                child: Text(_kMethodLabel[i],
+                child: Text(_methodLabel(i),
                     style: _ot(12, FontWeight.w600,
                         sel ? Colors.white : _kMuted)),
               ),
@@ -468,7 +471,7 @@ class _PayStudentDialogState extends State<_PayStudentDialog> {
                     border: Border.all(color: _kBorder),
                   ),
                   child: Text(
-                    '${_kMonths[p.month - 1]} ${p.year}',
+                    '${_months()[p.month - 1]} ${p.year}',
                     style: _ot(11, FontWeight.w700, _kInk),
                   ),
                 ),
@@ -482,7 +485,7 @@ class _PayStudentDialogState extends State<_PayStudentDialog> {
                     borderRadius: BorderRadius.circular(6),
                   ),
                   child: Text(
-                    p.isPaid ? 'Pagado' : 'Pendiente',
+                    p.isPaid ? 'school.badgePaid'.tr() : 'school.pendingLabel'.tr(),
                     style: _ot(10, FontWeight.w700,
                         p.isPaid ? _kPaidText : _kPendText),
                   ),
@@ -590,7 +593,7 @@ class _PayStudentDialogState extends State<_PayStudentDialog> {
                       color: sel ? _kPrimary : _kBorder,
                     ),
                   ),
-                  child: Text(_kMethodLabel[i],
+                  child: Text(_methodLabel(i),
                       style: _ot(12, FontWeight.w600,
                           sel ? Colors.white : _kMuted)),
                 ),
@@ -635,29 +638,91 @@ InputDecoration _fieldDec(String hint) => InputDecoration(
           borderSide:   const BorderSide(color: _kPrimary, width: 1.5)),
     );
 
-// ─── Year pill ────────────────────────────────────────────────────────────────
-class _YearPill extends StatelessWidget {
-  final int          year;
-  final bool         selected;
-  final VoidCallback onTap;
-  const _YearPill({required this.year, required this.selected, required this.onTap});
+// ─── Year wheel picker ────────────────────────────────────────────────────────
+class _YearWheelPicker extends StatefulWidget {
+  final int               selected;
+  final ValueChanged<int> onChanged;
+  const _YearWheelPicker({required this.selected, required this.onChanged});
 
   @override
-  Widget build(BuildContext context) => GestureDetector(
-        onTap: onTap,
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 150),
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-          decoration: BoxDecoration(
-            color:  selected ? _kPrimary : _kFieldBg,
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: selected ? _kPrimary : _kBorder),
+  State<_YearWheelPicker> createState() => _YearWheelPickerState();
+}
+
+class _YearWheelPickerState extends State<_YearWheelPicker> {
+  static const _min = 2018;
+  static const _max = 2035;
+  late final FixedExtentScrollController _ctrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = FixedExtentScrollController(
+      initialItem: (widget.selected - _min).clamp(0, _max - _min),
+    );
+  }
+
+  @override
+  void didUpdateWidget(_YearWheelPicker old) {
+    super.didUpdateWidget(old);
+    if (old.selected != widget.selected) {
+      final idx = (widget.selected - _min).clamp(0, _max - _min);
+      if (_ctrl.selectedItem != idx) {
+        _ctrl.animateToItem(idx,
+            duration: const Duration(milliseconds: 200), curve: Curves.easeOut);
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 88,
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          Container(
+            height: 34,
+            decoration: BoxDecoration(
+              color:  _kPrimary.withValues(alpha: 0.08),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: _kPrimary.withValues(alpha: 0.25)),
+            ),
           ),
-          child: Text('$year',
-              style: _ot(13, FontWeight.w600,
-                  selected ? Colors.white : _kMuted)),
-        ),
-      );
+          ListWheelScrollView.useDelegate(
+            controller:    _ctrl,
+            itemExtent:    34,
+            diameterRatio: 2.0,
+            physics:       const FixedExtentScrollPhysics(),
+            onSelectedItemChanged: (i) => widget.onChanged(_min + i),
+            childDelegate: ListWheelChildBuilderDelegate(
+              childCount: _max - _min + 1,
+              builder: (_, i) {
+                final year = _min + i;
+                final sel  = year == widget.selected;
+                return Center(
+                  child: AnimatedDefaultTextStyle(
+                    duration: const Duration(milliseconds: 150),
+                    style: _ot(
+                      sel ? 16 : 13,
+                      sel ? FontWeight.w700 : FontWeight.w400,
+                      sel ? _kPrimary : _kHint,
+                    ),
+                    child: Text('$year'),
+                  ),
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 // ─── Error banner ─────────────────────────────────────────────────────────────

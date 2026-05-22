@@ -5,7 +5,9 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:animations/animations.dart';
+import 'package:flutter_map/flutter_map.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:latlong2/latlong.dart';
 
 import '../services/auth_service.dart';
 import '../services/event_service.dart';
@@ -71,9 +73,15 @@ class _T {
 // ─── Breakpoints ──────────────────────────────────────────────────────────────
 enum _Layout { mobile, tablet, web }
 
+bool get _isDesktopOrWeb =>
+    kIsWeb ||
+    defaultTargetPlatform == TargetPlatform.windows ||
+    defaultTargetPlatform == TargetPlatform.macOS ||
+    defaultTargetPlatform == TargetPlatform.linux;
+
 _Layout _layoutFor(double w) {
-  if (w >= 1100) return _Layout.web;
-  if (w >= 600)  return _Layout.tablet;
+  if (_isDesktopOrWeb && w >= 1100) return _Layout.web;
+  if (w >= 600) return _Layout.tablet;
   return _Layout.mobile;
 }
 
@@ -148,6 +156,7 @@ class _HomeScreenState extends State<HomeScreen>
   AuthUser?    _user;
   List<School> _schools        = [];
   bool         _loadingSchools = true;
+  String?      _schoolsError;
   int          _totalStudents  = 0;
   int          _totalEvents    = 0;
 
@@ -189,15 +198,33 @@ class _HomeScreenState extends State<HomeScreen>
   // Reloads only the schools list using the already-resolved userId.
   // Called from _showAddSchool to avoid hitting secure storage again.
   Future<void> _reloadSchools(String userId) async {
-    setState(() => _loadingSchools = true);
+    setState(() { _loadingSchools = true; _schoolsError = null; });
     try {
       final schools = await SchoolService.getUserSchools(userId);
       if (!mounted) return;
       setState(() { _schools = schools; _loadingSchools = false; });
       _loadCounts(schools);
-    } catch (_) {
+    } catch (e) {
       if (!mounted) return;
       setState(() => _loadingSchools = false);
+      // Extract the actual message — custom exceptions override toString() to return message
+      final msg = e.toString();
+      final isAuth = msg.contains('401') || msg.contains('No authentication token');
+      if (isAuth) {
+        await AuthService.logout();
+        if (!mounted) return;
+        Navigator.of(context).pushAndRemoveUntil(
+          PageRouteBuilder(
+            pageBuilder: (_, __, ___) => const LoginScreen(),
+            transitionsBuilder: (_, a, __, child) =>
+                FadeTransition(opacity: a, child: child),
+            transitionDuration: const Duration(milliseconds: 400),
+          ),
+          (_) => false,
+        );
+      } else {
+        setState(() => _schoolsError = msg);
+      }
     }
   }
 
@@ -232,19 +259,15 @@ class _HomeScreenState extends State<HomeScreen>
     if (!(ok ?? false) || !mounted) return;
     await AuthService.logout();
     if (!mounted) return;
-    if (kIsWeb) {
-      Navigator.of(context).pushAndRemoveUntil(
-        PageRouteBuilder(
-          pageBuilder: (_, __, ___) => const LoginScreen(),
-          transitionsBuilder: (_, a, __, child) =>
-              FadeTransition(opacity: a, child: child),
-          transitionDuration: const Duration(milliseconds: 400),
-        ),
-        (_) => false,
-      );
-    } else {
-      SystemNavigator.pop();
-    }
+    Navigator.of(context).pushAndRemoveUntil(
+      PageRouteBuilder(
+        pageBuilder: (_, __, ___) => const LoginScreen(),
+        transitionsBuilder: (_, a, __, child) =>
+            FadeTransition(opacity: a, child: child),
+        transitionDuration: const Duration(milliseconds: 400),
+      ),
+      (_) => false,
+    );
   }
 
   void _switchTab(int i) {
@@ -316,11 +339,13 @@ class _HomeScreenState extends State<HomeScreen>
                     user:          _user,
                     schools:       _schools,
                     loading:       _loadingSchools,
+                    error:         _schoolsError,
                     totalStudents: _totalStudents,
                     totalEvents:   _totalEvents,
                     onTabSelect:   _switchTab,
                     onLogout:      _logout,
                     onAddSchool:   _showAddSchool,
+                    onRetry:       () { if (_user != null) _reloadSchools(_user!.id); },
                   ),
                 )
               else ...[
@@ -349,17 +374,21 @@ class _HomeScreenState extends State<HomeScreen>
                                       user:          _user,
                                       schools:       _schools,
                                       loading:       _loadingSchools,
+                                      error:         _schoolsError,
                                       totalStudents: _totalStudents,
                                       totalEvents:   _totalEvents,
                                       onLogout:      _logout,
-                                      onRefresh:     _onRefresh)
+                                      onRefresh:     _onRefresh,
+                                      onRetry:       () { if (_user != null) _reloadSchools(_user!.id); })
                                   : _HomeBody(
                                       safeBottom: safeBottom,
                                       user:       _user,
                                       schools:    _schools,
                                       loading:    _loadingSchools,
+                                      error:      _schoolsError,
                                       onLogout:   _logout,
-                                      onRefresh:  _onRefresh))
+                                      onRefresh:  _onRefresh,
+                                      onRetry:    () { if (_user != null) _reloadSchools(_user!.id); }))
                               : _PlaceholderTab(index: _tab),
                         ),
                       ),
@@ -430,10 +459,47 @@ class _PlaceholderTab extends StatelessWidget {
   const _PlaceholderTab({required this.index});
   @override
   Widget build(BuildContext context) {
-    const keys = ['', 'home.tabExplore', 'home.tabCalendar', 'home.tabProfile'];
+    if (index == 1) return const _MapShowTab();
+    const keys = ['', '', 'home.tabCalendar', 'home.tabProfile'];
     return Center(
         child: Text(keys[index].tr(),
             style: _pjs(18, FontWeight.w600, _T.muted)));
+  }
+}
+
+class _MapShowTab extends StatelessWidget {
+  static final _gandia = LatLng(38.9651, -0.1810);
+
+  const _MapShowTab();
+
+  @override
+  Widget build(BuildContext context) {
+    return FlutterMap(
+      options: MapOptions(
+        initialCenter: _gandia,
+        initialZoom: 13.0,
+      ),
+      children: [
+        TileLayer(
+          urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+          userAgentPackageName: 'com.dancewithme.app',
+        ),
+        MarkerLayer(
+          markers: [
+            Marker(
+              point: _gandia,
+              width: 48,
+              height: 48,
+              child: const Icon(
+                Icons.location_pin,
+                color: _T.purple,
+                size: 48,
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
   }
 }
 
@@ -475,7 +541,7 @@ class _StatsStrip extends StatelessWidget {
       SizedBox(width: gap),
       Expanded(
         child: _StatCard(
-          num: totalStudents > 0 ? totalStudents.toString() : '—', label: 'Alumnos',
+          num: totalStudents > 0 ? totalStudents.toString() : '—', label: 'home.statStudents'.tr(),
           numColor: _T.statPeachNum, labelColor: _T.statPeachLbl,
           height: height, bg: _T.statPeachBg,
           borderColor: _T.statPeachBorder,
@@ -484,7 +550,7 @@ class _StatsStrip extends StatelessWidget {
       SizedBox(width: gap),
       Expanded(
         child: _StatCard(
-          num: totalEvents > 0 ? totalEvents.toString() : '—', label: 'Eventos',
+          num: totalEvents > 0 ? totalEvents.toString() : '—', label: 'home.statEvents'.tr(),
           numColor: _T.statGreenNum, labelColor: _T.statGreenLbl,
           height: height, bg: _T.statGreenBg,
           borderColor: _T.statGreenBorder,
@@ -650,12 +716,58 @@ class _SchoolsEmptyState extends StatelessWidget {
           child: const Icon(Icons.school_outlined, color: _T.purple, size: 34),
         ),
         const SizedBox(height: 16),
-        Text('Aún no tienes escuelas',
+        Text('home.noSchools'.tr(),
             style: _pjs(16, FontWeight.w600, _T.ink)),
         const SizedBox(height: 6),
-        Text('Crea tu primera academia con el botón +',
+        Text('home.noSchoolsDesc'.tr(),
             textAlign: TextAlign.center,
             style: _pjs(13, FontWeight.w400, _T.muted)),
+      ]),
+    );
+  }
+}
+
+class _SchoolsErrorState extends StatelessWidget {
+  final VoidCallback onRetry;
+  const _SchoolsErrorState({required this.onRetry});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 40),
+      child: Column(children: [
+        Container(
+          width: 72, height: 72,
+          decoration: const BoxDecoration(
+              color: Color(0xFFFEF2F2), shape: BoxShape.circle),
+          child: const Icon(Icons.wifi_off_rounded,
+              color: Color(0xFFEF4444), size: 34),
+        ),
+        const SizedBox(height: 16),
+        Text('home.loadError'.tr(),
+            style: _pjs(16, FontWeight.w600, _T.ink),
+            textAlign: TextAlign.center),
+        const SizedBox(height: 6),
+        Text('home.loadErrorDesc'.tr(),
+            textAlign: TextAlign.center,
+            style: _pjs(13, FontWeight.w400, _T.muted)),
+        const SizedBox(height: 16),
+        _tap(
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(
+                colors: [_T.purple, _T.purpleLt],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Text('form.retry'.tr(),
+                style: _pjs(13, FontWeight.w600, Colors.white)),
+          ),
+          onTap: onRetry,
+        ),
       ]),
     );
   }
@@ -722,16 +834,20 @@ class _HomeBody extends StatelessWidget {
   final double      safeBottom;
   final AuthUser?   user;
   final List<School> schools;
-  final bool        loading;
+  final bool         loading;
+  final String?      error;
   final VoidCallback onLogout;
   final Future<void> Function() onRefresh;
+  final VoidCallback? onRetry;
   const _HomeBody({
     required this.safeBottom,
     required this.user,
     required this.schools,
     required this.loading,
+    this.error,
     required this.onLogout,
     required this.onRefresh,
+    this.onRetry,
   });
 
   @override
@@ -754,7 +870,7 @@ class _HomeBody extends StatelessWidget {
                   const SizedBox(height: 28),
                   _SchoolsCountCard(count: schools.length),
                   const SizedBox(height: 32),
-                  _MobileSchoolsSection(schools: schools, loading: loading),
+                  _MobileSchoolsSection(schools: schools, loading: loading, error: error, onRetry: onRetry),
                 ],
               ),
             ),
@@ -874,9 +990,16 @@ class _SchoolsCountCard extends StatelessWidget {
 }
 
 class _MobileSchoolsSection extends StatelessWidget {
-  final List<School> schools;
-  final bool         loading;
-  const _MobileSchoolsSection({required this.schools, required this.loading});
+  final List<School>  schools;
+  final bool          loading;
+  final String?       error;
+  final VoidCallback? onRetry;
+  const _MobileSchoolsSection({
+    required this.schools,
+    required this.loading,
+    this.error,
+    this.onRetry,
+  });
   @override
   Widget build(BuildContext context) {
     return Column(
@@ -891,7 +1014,9 @@ class _MobileSchoolsSection extends StatelessWidget {
             child: CircularProgressIndicator(color: _T.purple, strokeWidth: 2.5),
           ))
         else if (schools.isEmpty)
-          _SchoolsEmptyState()
+          (error != null
+              ? _SchoolsErrorState(onRetry: onRetry ?? () {})
+              : _SchoolsEmptyState())
         else
           LayoutBuilder(builder: (ctx, bc) {
             final twoCol = bc.maxWidth > 480;
@@ -1041,21 +1166,25 @@ class _MobileSchoolCard extends StatelessWidget {
 class _TabletBody extends StatelessWidget {
   final double       safeBottom;
   final AuthUser?    user;
-  final List<School> schools;
-  final bool         loading;
-  final int          totalStudents;
-  final int          totalEvents;
-  final VoidCallback onLogout;
+  final List<School>  schools;
+  final bool          loading;
+  final String?       error;
+  final int           totalStudents;
+  final int           totalEvents;
+  final VoidCallback  onLogout;
   final Future<void> Function() onRefresh;
+  final VoidCallback? onRetry;
   const _TabletBody({
     required this.safeBottom,
     required this.user,
     required this.schools,
     required this.loading,
+    this.error,
     this.totalStudents = 0,
     this.totalEvents   = 0,
     required this.onLogout,
     required this.onRefresh,
+    this.onRetry,
   });
 
   @override
@@ -1086,7 +1215,9 @@ class _TabletBody extends StatelessWidget {
                     color: _T.purple, strokeWidth: 2.5),
               ))
             else if (schools.isEmpty)
-              _SchoolsEmptyState()
+              (error != null
+                  ? _SchoolsErrorState(onRetry: onRetry ?? () {})
+                  : _SchoolsEmptyState())
             else
               LayoutBuilder(builder: (_, bc) {
                 const spacing = 12.0;
@@ -1171,11 +1302,13 @@ class _WebLayout extends StatelessWidget {
   final AuthUser?        user;
   final List<School>     schools;
   final bool             loading;
+  final String?          error;
   final int              totalStudents;
   final int              totalEvents;
   final ValueChanged<int> onTabSelect;
   final VoidCallback     onLogout;
   final VoidCallback     onAddSchool;
+  final VoidCallback?    onRetry;
 
   const _WebLayout({
     required this.tab,
@@ -1183,11 +1316,13 @@ class _WebLayout extends StatelessWidget {
     required this.user,
     required this.schools,
     required this.loading,
+    this.error,
     this.totalStudents = 0,
     this.totalEvents   = 0,
     required this.onTabSelect,
     required this.onLogout,
     required this.onAddSchool,
+    this.onRetry,
   });
 
   @override
@@ -1213,7 +1348,8 @@ class _WebLayout extends StatelessWidget {
                   key: ValueKey(tab),
                   child: tab == 0
                       ? _WebBody(schools: schools, loading: loading, onAddSchool: onAddSchool,
-                          totalStudents: totalStudents, totalEvents: totalEvents)
+                          totalStudents: totalStudents, totalEvents: totalEvents,
+                          error: error, onRetry: onRetry)
                       : _PlaceholderTab(index: tab),
                 ),
               ),
@@ -1366,7 +1502,7 @@ class _Sidebar extends StatelessWidget {
                 const Icon(Icons.logout_rounded,
                     color: _T.logoutClr, size: 18),
                 const SizedBox(width: 10),
-                Text('Cerrar Sesión',
+                Text('dialog.logout.confirm'.tr(),
                     style: _pjs(14, FontWeight.w500, _T.logoutClr)),
               ]),
             ),
@@ -1458,17 +1594,21 @@ class _WebTopBar extends StatelessWidget {
 }
 
 class _WebBody extends StatelessWidget {
-  final List<School> schools;
-  final bool         loading;
-  final VoidCallback onAddSchool;
-  final int          totalStudents;
-  final int          totalEvents;
+  final List<School>  schools;
+  final bool          loading;
+  final String?       error;
+  final VoidCallback  onAddSchool;
+  final int           totalStudents;
+  final int           totalEvents;
+  final VoidCallback? onRetry;
   const _WebBody({
     required this.schools,
     required this.loading,
     required this.onAddSchool,
+    this.error,
     this.totalStudents = 0,
     this.totalEvents   = 0,
+    this.onRetry,
   });
 
   @override
@@ -1536,7 +1676,9 @@ class _WebBody extends StatelessWidget {
                           color: _T.purple, strokeWidth: 2.5),
                     ))
                   else if (schools.isEmpty)
-                    _SchoolsEmptyState()
+                    (error != null
+                        ? _SchoolsErrorState(onRetry: onRetry ?? () {})
+                        : _SchoolsEmptyState())
                   else
                     LayoutBuilder(builder: (_, bc) {
                       const cols = 3;
