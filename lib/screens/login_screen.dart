@@ -1,6 +1,7 @@
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:supabase_flutter/supabase_flutter.dart' hide AuthException;
 
 import '../services/auth_service.dart';
 import '../utils/validators.dart';
@@ -17,13 +18,13 @@ const Color _kFieldBg  = Color(0xFFF5F4F1);
 const Color _kBorder   = Color(0xFFE5E4E1);
 
 // ─── Language options (code + locale) ─────────────────────────
-const List<String>  _kLangCodes   = ['EN', 'ES', 'BG'];
-const List<Locale>  _kLangLocales = [Locale('en'), Locale('es'), Locale('bg')];
+const List<String> _kLangCodes   = ['EN', 'ES', 'BG'];
+const List<Locale> _kLangLocales = [Locale('en'), Locale('es'), Locale('bg')];
 
 // Dimensions of the segmented pill
-const double _kSegW  = 46.0;   // width per segment
-const double _kSegH  = 34.0;   // height of the selector track
-const double _kPad   =  3.0;   // inner padding
+const double _kSegW = 46.0;
+const double _kSegH = 34.0;
+const double _kPad  =  3.0;
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -41,6 +42,15 @@ class _LoginScreenState extends State<LoginScreen> {
 
   bool _obscurePass = true;
   bool _isLoading   = false;
+  late final String _loginImageUrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _loginImageUrl = Supabase.instance.client.storage
+        .from('dancewithme')
+        .getPublicUrl('instance/login.png');
+  }
 
   @override
   void dispose() {
@@ -113,48 +123,101 @@ class _LoginScreenState extends State<LoginScreen> {
       body: GestureDetector(
         onTap: () => FocusScope.of(context).unfocus(),
         behavior: HitTestBehavior.opaque,
-        child: Stack(
-          children: [
-            _background(),
-            // Deco Circle 1 — top-left  (pen: x=-60, y=-40, 200×200)
-            Positioned(
-              left: -60, top: -40,
-              child: Opacity(
-                opacity: 0.6,
-                child: Container(
-                  width: 200, height: 200,
-                  decoration: const BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: Color(0x087C5CFC),
-                  ),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            if (constraints.maxWidth >= 600) {
+              return _buildWide(context, constraints);
+            }
+            return _buildNarrow(context);
+          },
+        ),
+      ),
+    );
+  }
+
+  // ─── Narrow layout (mobile) ───────────────────────────────────
+  Widget _buildNarrow(BuildContext context) {
+    return Stack(
+      children: [
+        _background(),
+        Positioned(
+          left: -60, top: -40,
+          child: _decoCircle(200, const Color(0x087C5CFC)),
+        ),
+        Positioned(
+          right: -40, bottom: 40,
+          child: _decoCircle(150, const Color(0x10D89575)),
+        ),
+        SafeArea(
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 480),
+              child: Form(
+                key: _formKey,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(32, 14, 32, 0),
+                      child: Align(
+                        alignment: Alignment.centerRight,
+                        child: _languageSelector(),
+                      ),
+                    ),
+                    Expanded(
+                      child: SingleChildScrollView(
+                        padding: const EdgeInsets.symmetric(horizontal: 32),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            const SizedBox(height: 24),
+                            _heroNarrow(),
+                            const SizedBox(height: 40),
+                            _emailField(),
+                            const SizedBox(height: 16),
+                            _passwordField(),
+                            _forgotRow(),
+                            const SizedBox(height: 28),
+                            _signInButton(),
+                            const SizedBox(height: 40),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ),
-            // Deco Circle 2 — bottom-right  (pen: x=320, y=720, 150×150)
-            Positioned(
-              left: 320, top: 720,
-              child: Opacity(
-                opacity: 0.5,
-                child: Container(
-                  width: 150, height: 150,
-                  decoration: const BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: Color(0x10D89575),
-                  ),
-                ),
-              ),
-            ),
-            // Main content
-            SafeArea(
+          ),
+        ),
+      ],
+    );
+  }
+
+  // ─── Wide layout (tablet / web) ───────────────────────────────
+  Widget _buildWide(BuildContext context, BoxConstraints constraints) {
+    final panelW = (constraints.maxWidth * 0.45).clamp(280.0, 520.0);
+    return Row(
+      children: [
+        // ── Left decorative panel ──────────────────────────────
+        SizedBox(
+          width: panelW,
+          height: double.infinity,
+          child: _LeftPanel(imageUrl: _loginImageUrl),
+        ),
+        // ── Right form panel ───────────────────────────────────
+        Expanded(
+          child: Container(
+            color: Colors.white,
+            child: SafeArea(
               child: Center(
                 child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 480),
+                  constraints: const BoxConstraints(maxWidth: 400),
                   child: Form(
                     key: _formKey,
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                        // ── Language selector — fixed at top-right, doesn't scroll
                         Padding(
                           padding: const EdgeInsets.fromLTRB(32, 14, 32, 0),
                           child: Align(
@@ -162,15 +225,14 @@ class _LoginScreenState extends State<LoginScreen> {
                             child: _languageSelector(),
                           ),
                         ),
-                        // ── Scrollable form content
                         Expanded(
                           child: SingleChildScrollView(
                             padding: const EdgeInsets.symmetric(horizontal: 32),
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.stretch,
                               children: [
-                                const SizedBox(height: 24),
-                                _heroSection(),
+                                const SizedBox(height: 40),
+                                _heroWide(),
                                 const SizedBox(height: 40),
                                 _emailField(),
                                 const SizedBox(height: 16),
@@ -189,15 +251,104 @@ class _LoginScreenState extends State<LoginScreen> {
                 ),
               ),
             ),
-          ],
+          ),
         ),
+      ],
+    );
+  }
+
+  // ─── Hero — mobile: image + title + tagline ───────────────────
+  Widget _heroNarrow() {
+    return Column(
+      children: [
+        ClipRRect(
+          borderRadius: BorderRadius.circular(20),
+          child: Image.network(
+            _loginImageUrl,
+            height: 160,
+            width: double.infinity,
+            fit: BoxFit.cover,
+            errorBuilder: (_, __, ___) => _iconFallback(64),
+            loadingBuilder: (_, child, progress) => progress == null
+                ? child
+                : Container(
+                    height: 160,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFEDE8FF),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: const Center(
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        valueColor:
+                            AlwaysStoppedAnimation(_kPurple),
+                      ),
+                    ),
+                  ),
+          ),
+        ),
+        const SizedBox(height: 20),
+        Text(
+          'app.name'.tr(),
+          style: GoogleFonts.outfit(
+            fontSize: 32,
+            fontWeight: FontWeight.w700,
+            letterSpacing: -1,
+            color: _kDark,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          'app.tagline'.tr(),
+          style: GoogleFonts.outfit(fontSize: 15, color: _kMid),
+        ),
+      ],
+    );
+  }
+
+  // ─── Hero — wide: just title + tagline (image is in left panel) ──
+  Widget _heroWide() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'app.name'.tr(),
+          style: GoogleFonts.outfit(
+            fontSize: 34,
+            fontWeight: FontWeight.w800,
+            letterSpacing: -1,
+            color: _kDark,
+          ),
+        ),
+        const SizedBox(height: 6),
+        Text(
+          'app.tagline'.tr(),
+          style: GoogleFonts.outfit(fontSize: 15, color: _kMid),
+        ),
+      ],
+    );
+  }
+
+  // ─── Icon fallback ─────────────────────────────────────────────
+  Widget _iconFallback(double size) {
+    return Container(
+      height: 160,
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [_kPurple, Color(0xFFA78BFA)],
+        ),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Center(
+        child: Icon(Icons.music_note_rounded, color: Colors.white, size: size),
       ),
     );
   }
 
-  // ─── Language Selector (sliding segmented control) ────────────
+  // ─── Language Selector ─────────────────────────────────────────
   Widget _languageSelector() {
-    // Resolve current active index
     final currentCode = context.locale.languageCode;
     final activeIdx   = _kLangLocales
         .indexWhere((l) => l.languageCode == currentCode)
@@ -206,7 +357,6 @@ class _LoginScreenState extends State<LoginScreen> {
     return Container(
       padding: const EdgeInsets.all(_kPad),
       decoration: BoxDecoration(
-        // Subtle lavender track — matches the design palette
         color: const Color(0xFFEDE8FF),
         borderRadius: BorderRadius.circular(12),
       ),
@@ -215,7 +365,6 @@ class _LoginScreenState extends State<LoginScreen> {
         height: _kSegH,
         child: Stack(
           children: [
-            // ── Sliding purple thumb ──────────────────────────
             AnimatedPositioned(
               duration: const Duration(milliseconds: 220),
               curve: Curves.easeOutCubic,
@@ -237,7 +386,6 @@ class _LoginScreenState extends State<LoginScreen> {
                 ),
               ),
             ),
-            // ── Language labels ──────────────────────────────
             Row(
               children: List.generate(_kLangCodes.length, (i) {
                 final active = i == activeIdx;
@@ -255,7 +403,9 @@ class _LoginScreenState extends State<LoginScreen> {
                         style: GoogleFonts.outfit(
                           fontSize: 12,
                           fontWeight: FontWeight.w700,
-                          color: active ? Colors.white : const Color(0xFF9C8FD4),
+                          color: active
+                              ? Colors.white
+                              : const Color(0xFF9C8FD4),
                         ),
                         child: Text(_kLangCodes[i]),
                       ),
@@ -286,48 +436,10 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 
-  // ─── Hero Section ─────────────────────────────────────────────
-  Widget _heroSection() {
-    return Column(
-      children: [
-        // Logo Container  (pen: 88×88, gradient 135°, cornerRadius 100)
-        Container(
-          width: 88, height: 88,
-          decoration: BoxDecoration(
-            gradient: const LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [_kPurple, Color(0xFFA78BFA)],
-            ),
-            borderRadius: BorderRadius.circular(100),
-            boxShadow: const [
-              BoxShadow(
-                color: Color(0x307C5CFC),
-                offset: Offset(0, 8),
-                blurRadius: 32,
-              ),
-            ],
-          ),
-          child: const Icon(Icons.music_note_rounded, color: Colors.white, size: 36),
-        ),
-        const SizedBox(height: 12),
-        Text(
-          'app.name'.tr(),
-          style: GoogleFonts.outfit(
-            fontSize: 32,
-            fontWeight: FontWeight.w700,
-            letterSpacing: -1,
-            color: _kDark,
-          ),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          'app.tagline'.tr(),
-          style: GoogleFonts.outfit(fontSize: 15, color: _kMid),
-        ),
-      ],
-    );
-  }
+  Widget _decoCircle(double size, Color color) => Container(
+        width: size, height: size,
+        decoration: BoxDecoration(shape: BoxShape.circle, color: color),
+      );
 
   // ─── Email Field ──────────────────────────────────────────────
   Widget _emailField() {
@@ -394,7 +506,8 @@ class _LoginScreenState extends State<LoginScreen> {
       prefixIconConstraints: const BoxConstraints(minWidth: 0, minHeight: 0),
       suffixIcon: suffix,
       suffixIconConstraints: const BoxConstraints(minWidth: 0, minHeight: 0),
-      contentPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 18),
+      contentPadding:
+          const EdgeInsets.symmetric(horizontal: 18, vertical: 18),
       border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(16),
           borderSide: const BorderSide(color: _kBorder)),
@@ -409,7 +522,8 @@ class _LoginScreenState extends State<LoginScreen> {
           borderSide: const BorderSide(color: Colors.redAccent)),
       focusedErrorBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(16),
-          borderSide: const BorderSide(color: Colors.redAccent, width: 1.5)),
+          borderSide:
+              const BorderSide(color: Colors.redAccent, width: 1.5)),
     );
   }
 
@@ -470,7 +584,8 @@ class _LoginScreenState extends State<LoginScreen> {
                   width: 22, height: 22,
                   child: CircularProgressIndicator(
                     strokeWidth: 2.5,
-                    valueColor: AlwaysStoppedAnimation(Colors.white),
+                    valueColor:
+                        AlwaysStoppedAnimation(Colors.white),
                   ),
                 )
               : Text(
@@ -485,4 +600,126 @@ class _LoginScreenState extends State<LoginScreen> {
       ),
     );
   }
+}
+
+// ─── Left decorative panel (tablet / web) ────────────────────────────────────
+class _LeftPanel extends StatelessWidget {
+  final String imageUrl;
+  const _LeftPanel({required this.imageUrl});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            Color(0xFF4C23C8),
+            Color(0xFF7C5CFC),
+            Color(0xFF9B7EFD),
+          ],
+          stops: [0.0, 0.55, 1.0],
+        ),
+      ),
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          // Decorative glow orbs
+          Positioned(
+            top: -60, left: -60,
+            child: _Orb(size: 280, color: Colors.white.withValues(alpha: 0.06)),
+          ),
+          Positioned(
+            bottom: -40, right: -40,
+            child: _Orb(size: 220, color: Colors.white.withValues(alpha: 0.08)),
+          ),
+          // Image + overlay
+          Padding(
+            padding: const EdgeInsets.all(32),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Expanded(
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(24),
+                    child: Image.network(
+                      imageUrl,
+                      fit: BoxFit.cover,
+                      width: double.infinity,
+                      errorBuilder: (_, __, ___) => Container(
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(24),
+                        ),
+                        child: const Center(
+                          child: Icon(
+                            Icons.music_note_rounded,
+                            color: Colors.white,
+                            size: 64,
+                          ),
+                        ),
+                      ),
+                      loadingBuilder: (_, child, progress) =>
+                          progress == null
+                              ? child
+                              : Container(
+                                  decoration: BoxDecoration(
+                                    color:
+                                        Colors.white.withValues(alpha: 0.10),
+                                    borderRadius: BorderRadius.circular(24),
+                                  ),
+                                  child: const Center(
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      valueColor: AlwaysStoppedAnimation(
+                                          Colors.white),
+                                    ),
+                                  ),
+                                ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 28),
+                // App name on panel
+                Text(
+                  'DanceWithMe',
+                  style: GoogleFonts.outfit(
+                    fontSize: 28,
+                    fontWeight: FontWeight.w800,
+                    color: Colors.white,
+                    letterSpacing: -0.5,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  'Tu academia de baile digital',
+                  style: GoogleFonts.outfit(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w400,
+                    color: Colors.white.withValues(alpha: 0.75),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _Orb extends StatelessWidget {
+  final double size;
+  final Color  color;
+  const _Orb({required this.size, required this.color});
+
+  @override
+  Widget build(BuildContext context) => Container(
+        width: size, height: size,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: color,
+        ),
+      );
 }

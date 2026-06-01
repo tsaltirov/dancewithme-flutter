@@ -2004,7 +2004,7 @@ class _AddEditDialogState extends State<_AddEditDialog> {
 
     return Dialog(
       insetPadding: isMobile
-          ? EdgeInsets.fromLTRB(12, 24, 12, keyboard + 24)
+          ? const EdgeInsets.fromLTRB(12, 24, 12, 24)
           : const EdgeInsets.symmetric(horizontal: 40, vertical: 40),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
       backgroundColor: Colors.white,

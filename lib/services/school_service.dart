@@ -185,4 +185,52 @@ class SchoolService {
       throw SchoolException('Server returned ${res.statusCode}: ${res.body}');
     }
   }
+
+  // ── PUT /api/v1/schools/{id} ──────────────────────────────────────────────
+  static Future<void> updateSchool({
+    required int    id,
+    required String name,
+    required String address,
+    required String phone,
+    required String email,
+    required String userId,
+    String? imageUrl,
+  }) async {
+    final token = await AuthService.getAccessToken();
+    if (token == null) throw const SchoolException('No authentication token found');
+
+    final body = jsonEncode({
+      'name':     name.trim(),
+      'address':  address.trim(),
+      'phone':    phone.trim(),
+      'email':    email.trim().toLowerCase(),
+      'imageUrl': imageUrl ?? '',
+      'userId':   userId,
+    });
+    if (kDebugMode) debugPrint('[SchoolService] PUT $_baseUrl/api/v1/schools/$id → $body');
+
+    final http.Response res;
+    try {
+      res = await http
+          .put(
+            Uri.parse('$_baseUrl/api/v1/schools/$id'),
+            headers: {
+              'Content-Type': 'application/json; charset=UTF-8',
+              'Authorization': 'Bearer $token',
+            },
+            body: body,
+          )
+          .timeout(const Duration(seconds: 15));
+    } on TimeoutException {
+      throw const SchoolException('Request timed out — check your connection');
+    } catch (e) {
+      throw SchoolException('Connection error: ${e.runtimeType}');
+    }
+
+    if (kDebugMode) debugPrint('[SchoolService] response ${res.statusCode}');
+
+    if (res.statusCode != 200 && res.statusCode != 201) {
+      throw SchoolException('Server returned ${res.statusCode}: ${res.body}');
+    }
+  }
 }
