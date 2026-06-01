@@ -7,6 +7,8 @@ import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
 
+import '../utils/api_error.dart';
+
 // ─── Storage keys ─────────────────────────────────────────────────────────────
 const _kAccessToken   = 'auth_access_token';
 const _kRefreshToken  = 'auth_refresh_token';
@@ -113,17 +115,21 @@ class AuthService {
           _storage.write(key: _kUserRole,     value: user.role),
         ]);
 
+        // Web: force IndexedDB key-commit to finish before the caller navigates.
+        // Without this, HomeScreen._loadData reads null and bounces back to login.
+        if (kIsWeb) await _safeRead(_kAccessToken);
+
         return user;
 
       case 401:
       case 403:
-        throw const AuthException('auth.errorInvalidCredentials');
+        throw AuthException(ApiError.trKey(res.body, res.statusCode));
 
       case >= 500:
-        throw const AuthException('auth.errorServer');
+        throw AuthException(ApiError.trKey(res.body, res.statusCode));
 
       default:
-        throw const AuthException('auth.errorServer');
+        throw AuthException(ApiError.trKey(res.body, res.statusCode));
     }
   }
 
@@ -319,11 +325,8 @@ class AuthService {
     // 200 / 201 → success.
     // Many backends return 200 even for unknown emails (security — no user enumeration).
     // Only treat 5xx (and unexpected 4xx) as errors.
-    if (res.statusCode >= 500) {
-      throw const AuthException('auth.errorServer');
-    }
-    if (res.statusCode == 400) {
-      throw const AuthException('auth.validationEmailFormat');
+    if (res.statusCode >= 400) {
+      throw AuthException(ApiError.trKey(res.body, res.statusCode));
     }
   }
 
@@ -354,13 +357,7 @@ class AuthService {
     }
 
     if (res.statusCode == 200 || res.statusCode == 201) return;
-
-    if (res.statusCode == 400 ||
-        res.statusCode == 404 ||
-        res.statusCode == 422) {
-      throw const AuthException('auth.errorInvalidCode');
-    }
-    throw const AuthException('auth.errorServer');
+    throw AuthException(ApiError.trKey(res.body, res.statusCode));
   }
 
   // ── Logout — wipes all stored credentials ─────────────────────────────────
@@ -373,6 +370,53 @@ class AuthService {
       _storage.delete(key: _kUserLastName),
       _storage.delete(key: _kUserEmail),
       _storage.delete(key: _kUserRole),
+    ]);
+  }
+
+  // ── PATCH /api/v1/users/{id}/profile — update display name ──────────────
+  // Updates name + lastName both on the backend and in local secure storage.
+  // If the server call fails the local storage is still updated so the UI
+  // reflects the change immediately (eventual consistency is acceptable here).
+  static Future<void> updateProfile({
+    required String userId,
+    required String name,
+    required String lastName,
+    String?         imageUrl,
+  }) async {
+    final token = await getAccessToken();
+    if (token == null) throw const AuthException('auth.errorConfig');
+
+    try {
+      final res = await http
+          .patch(
+            Uri.parse('$_baseUrl/api/v1/users/$userId/profile'),
+            headers: {
+              'Authorization': 'Bearer $token',
+              'Content-Type': 'application/json; charset=UTF-8',
+            },
+            body: jsonEncode({
+              'name':     name,
+              'lastName': lastName,
+              if (imageUrl != null && imageUrl.isNotEmpty) 'imageUrl': imageUrl,
+            }),
+          )
+          .timeout(const Duration(seconds: 15));
+
+      if (kDebugMode) {
+        debugPrint('[AuthService] PATCH /api/v1/users/$userId/profile → ${res.statusCode}');
+      }
+
+      if (res.statusCode >= 400) throw AuthException(ApiError.trKey(res.body, res.statusCode));
+    } on TimeoutException {
+      throw const AuthException('auth.errorTimeout');
+    } on SocketException {
+      throw const AuthException('auth.errorNoConnection');
+    }
+
+    // Always persist to local storage regardless of server response code.
+    await Future.wait([
+      _storage.write(key: _kUserName,     value: name),
+      _storage.write(key: _kUserLastName, value: lastName),
     ]);
   }
 }

@@ -3,7 +3,9 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart' show kIsWeb, defaultTargetPlatform, TargetPlatform;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../services/group_service.dart';
 import '../services/school_service.dart';
@@ -206,7 +208,7 @@ class _SchoolScreenState extends State<SchoolScreen> {
         _paymentsLoading = false;
       });
 
-      if (_filter != 0) _computePeriodMap();
+      _computePeriodMap();
     } catch (_) {
       if (!mounted) return;
       setState(() => _paymentsLoading = false);
@@ -389,7 +391,12 @@ Future<void> _handleAddCsv() async {
   }
 
   List<Student> get _students {
-    var list = _allStudents;
+    // Remap isPaid to reflect the selected period, not "has any payment ever"
+    var list = _periodPaidMap.isEmpty
+        ? _allStudents
+        : _allStudents
+            .map((s) => s.copyWith(isPaid: _periodPaidMap[s.id] == true))
+            .toList();
     if (_filter == 1) list = list.where((s) => _periodPaidMap[s.id] == true).toList();
     if (_filter == 2) list = list.where((s) => _periodPaidMap[s.id] != true).toList();
     final q = _searchCtrl.text.trim().toLowerCase();
@@ -532,8 +539,7 @@ class _MobileSchool extends StatelessWidget {
               icon: Icons.notifications_outlined, labelKey: 'school.tabAlerts'),
           _Tab.wardrobe => WardrobeTab(school: school),
           _Tab.groups   => _GroupsTab(school: school),
-          _Tab.choreo   => _PlaceholderContent(
-              icon: Icons.queue_music_rounded, labelKey: 'school.tabChoreo'),
+          _Tab.choreo   => const _ChoreoTab(),
         },
       ),
     ]);
@@ -610,8 +616,7 @@ class _TabletSchool extends StatelessWidget {
               icon: Icons.notifications_outlined, labelKey: 'school.tabAlerts'),
           _Tab.wardrobe => WardrobeTab(school: school),
           _Tab.groups   => _GroupsTab(school: school),
-          _Tab.choreo   => _PlaceholderContent(
-              icon: Icons.queue_music_rounded, labelKey: 'school.tabChoreo'),
+          _Tab.choreo   => const _ChoreoTab(),
         },
       ),
     ]);
@@ -688,8 +693,7 @@ class _WebSchool extends StatelessWidget {
                   icon: Icons.notifications_outlined, labelKey: 'school.tabAlerts'),
               _Tab.wardrobe => WardrobeTab(school: school),
               _Tab.groups   => _GroupsTab(school: school),
-              _Tab.choreo   => _PlaceholderContent(
-                  icon: Icons.queue_music_rounded, labelKey: 'school.tabChoreo'),
+              _Tab.choreo   => const _ChoreoTab(),
             },
           ),
         ]),
@@ -1115,10 +1119,14 @@ class _TabPill extends StatelessWidget {
               : null,
         ),
         child: Center(
-          child: Text(labelKey.tr(),
-              style: _st(12,
-                  active ? FontWeight.w600 : FontWeight.w500,
-                  active ? _S.primary : _S.hint)),
+          child: Text(
+            labelKey.tr(),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: _st(12,
+                active ? FontWeight.w600 : FontWeight.w500,
+                active ? _S.primary : _S.hint),
+          ),
         ),
       ),
     );
@@ -1519,7 +1527,7 @@ class _TableHeader extends StatelessWidget {
         Expanded(flex: 3, child: _colLbl('school.colName'.tr(),    tablet: t)),
         SizedBox(width: t ? 90.0 : _kColCurso,   child: Center(child: _colLbl('school.colCourse'.tr(), tablet: t))),
         Expanded(flex: 2, child: _colLbl('school.colEmail'.tr(),   tablet: t)),
-        SizedBox(width: t ? 124.0 : _kColEstado,  child: Center(child: _colLbl('Estado',               tablet: t))),
+        SizedBox(width: t ? 124.0 : _kColEstado,  child: Center(child: _colLbl('school.colStatus'.tr(), tablet: t))),
         SizedBox(width: t ? 156.0 : _kColActions, child: Center(child: _colLbl('Acciones',             tablet: t))),
       ]),
     );
@@ -2448,7 +2456,7 @@ class _EventSearchField extends StatelessWidget {
             onChanged: onChanged,
             style: _st(13, FontWeight.normal, _S.ink),
             decoration: InputDecoration(
-              hintText: 'Buscar por título o lugar…',
+              hintText: 'school.searchEventHint'.tr(),
               hintStyle: _st(13, FontWeight.normal, _S.hint),
               border: InputBorder.none,
               isDense: true,
@@ -2494,10 +2502,9 @@ class _EventCardState extends State<_EventCard> {
 
   String _fmtDate(String iso) {
     try {
-      final dt = DateTime.parse(iso).toLocal();
-      const days   = ['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'];
-      const months = ['ene','feb','mar','abr','may','jun',
-                      'jul','ago','sep','oct','nov','dic'];
+      final dt     = DateTime.parse(iso).toLocal();
+      final days   = 'ui.daysShort'.tr().split(',');
+      final months = 'ui.monthsShort'.tr().split(',');
       return '${days[dt.weekday - 1]}, ${dt.day} ${months[dt.month - 1]} · '
           '${dt.hour.toString().padLeft(2, '0')}:'
           '${dt.minute.toString().padLeft(2, '0')}';
@@ -2528,37 +2535,72 @@ class _EventCardState extends State<_EventCard> {
       });
     } catch (_) {
       if (!mounted) return;
-      setState(() { _loadingDetails = false; _detailsErr = 'Error al cargar detalles'; });
+      setState(() { _loadingDetails = false; _detailsErr = 'school.errorLoadDetails'.tr(); });
     }
   }
 
   Future<void> _showDetailsSheet() async {
     if (!_detailsLoaded && !_loadingDetails) await _loadDetails();
     if (!mounted) return;
-    showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      useSafeArea: true,
-      backgroundColor: Colors.transparent,
-      builder: (_) => _EventDetailsSheet(
-        event:          widget.event,
-        prices:         _prices,
-        participations: _participations,
-        error:          _detailsErr,
-        loading:        _loadingDetails,
-        unregistering:  _unregistering,
-        fmtDate:        _fmtDate,
-        initials:       _initials,
-        onUnregister:   (p) async {
-          Navigator.pop(context);
-          await _handleUnregister(p);
-        },
-        onCancel: () async {
-          Navigator.pop(context);
-          await _handleCancel();
-        },
-      ),
-    );
+    final screenW = MediaQuery.of(context).size.width;
+    final screenH = MediaQuery.of(context).size.height;
+    final isWide  = screenW >= 600;
+
+    Future<void> onUnregister(EventParticipation p) async {
+      Navigator.pop(context);
+      await _handleUnregister(p);
+    }
+    Future<void> onCancel() async {
+      Navigator.pop(context);
+      await _handleCancel();
+    }
+
+    if (isWide) {
+      showDialog<void>(
+        context: context,
+        builder: (_) => Dialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          insetPadding: const EdgeInsets.symmetric(horizontal: 32, vertical: 40),
+          clipBehavior: Clip.antiAlias,
+          child: ConstrainedBox(
+            constraints: BoxConstraints(maxWidth: 540, maxHeight: screenH * 0.82),
+            child: _EventDetailsSheet(
+              isDialog:       true,
+              event:          widget.event,
+              prices:         _prices,
+              participations: _participations,
+              error:          _detailsErr,
+              loading:        _loadingDetails,
+              unregistering:  _unregistering,
+              fmtDate:        _fmtDate,
+              initials:       _initials,
+              onUnregister:   onUnregister,
+              onCancel:       onCancel,
+            ),
+          ),
+        ),
+      );
+    } else {
+      showModalBottomSheet<void>(
+        context: context,
+        isScrollControlled: true,
+        useSafeArea: true,
+        backgroundColor: Colors.transparent,
+        builder: (_) => _EventDetailsSheet(
+          isDialog:       false,
+          event:          widget.event,
+          prices:         _prices,
+          participations: _participations,
+          error:          _detailsErr,
+          loading:        _loadingDetails,
+          unregistering:  _unregistering,
+          fmtDate:        _fmtDate,
+          initials:       _initials,
+          onUnregister:   onUnregister,
+          onCancel:       onCancel,
+        ),
+      );
+    }
   }
 
   Future<void> _handleEnroll() async {
@@ -3111,18 +3153,180 @@ class _EventDetailsSheet extends StatelessWidget {
   final String Function(String)            initials;
   final Future<void> Function(EventParticipation) onUnregister;
   final VoidCallback                       onCancel;
+  final bool                               isDialog;
 
   const _EventDetailsSheet({
     required this.event, required this.prices, required this.participations,
     this.error, this.loading = false, this.unregistering,
     required this.fmtDate, required this.initials,
     required this.onUnregister, required this.onCancel,
+    this.isDialog = false,
   });
+
+  // Shared list content for both sheet and dialog layouts.
+  List<Widget> _listChildren() => [
+    if (loading)
+      const Padding(
+        padding: EdgeInsets.symmetric(vertical: 40),
+        child: Center(child: CircularProgressIndicator(
+            color: _S.primary, strokeWidth: 2.5)),
+      )
+    else if (error != null)
+      Padding(
+        padding: const EdgeInsets.symmetric(vertical: 24),
+        child: Text(error!,
+            style: _st(13, FontWeight.normal, _S.errorRed),
+            textAlign: TextAlign.center),
+      )
+    else ...[
+      _SheetSection(label: 'school.pricesLabel'.tr()),
+      const SizedBox(height: 8),
+      if (prices.isEmpty)
+        Text('school.noPrices'.tr(),
+            style: _st(13, FontWeight.normal, _S.hint))
+      else
+        Wrap(
+          spacing: 6, runSpacing: 6,
+          children: prices.map((p) => Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            decoration: BoxDecoration(
+              color: _S.primaryDim,
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Text('${p.type} · €${p.amount.toStringAsFixed(2)}',
+                style: _st(12, FontWeight.w600, _S.primary)),
+          )).toList(),
+        ),
+      const SizedBox(height: 20),
+      Row(children: [
+        _SheetSection(label: 'school.participantsLabel'.tr()),
+        const SizedBox(width: 8),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+          decoration: BoxDecoration(
+            color: _S.primaryDim,
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Text(
+            '${participations.length}/${event.maxCapacity}',
+            style: _st(11, FontWeight.w700, _S.primary),
+          ),
+        ),
+      ]),
+      const SizedBox(height: 10),
+      if (participations.isEmpty)
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          child: Text('school.noEnrolled'.tr(),
+              style: _st(13, FontWeight.normal, _S.hint)),
+        )
+      else
+        for (var i = 0; i < participations.length; i++)
+          _ParticipantRow(
+            participation: participations[i],
+            index:         i,
+            unregistering: unregistering,
+            initials:      initials,
+            onUnregister:  onUnregister,
+          ),
+      const SizedBox(height: 24),
+      const Divider(height: 1, color: _S.border),
+      const SizedBox(height: 16),
+      MouseRegion(
+        cursor: SystemMouseCursors.click,
+        child: GestureDetector(
+          onTap: onCancel,
+          child: Container(
+            height: 50,
+            decoration: BoxDecoration(
+              color: const Color(0xFFFFEBEB),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(
+                  color: const Color(0xFFDC2626).withValues(alpha: 0.45),
+                  width: 1.5),
+            ),
+            alignment: Alignment.center,
+            child: Row(mainAxisSize: MainAxisSize.min, children: [
+              const Icon(Icons.cancel_outlined,
+                  size: 18, color: Color(0xFFDC2626)),
+              const SizedBox(width: 8),
+              Text('eventForm.cancelBtn'.tr(),
+                  style: _st(14, FontWeight.w700,
+                      const Color(0xFFDC2626))),
+            ]),
+          ),
+        ),
+      ),
+    ],
+  ];
+
+  Widget _header(BuildContext context) => Padding(
+        padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(event.title,
+                style: _st(18, FontWeight.w800, _S.ink),
+                maxLines: 2, overflow: TextOverflow.ellipsis),
+            const SizedBox(height: 6),
+            _EventInfoRow(
+              icon: Icons.calendar_today_rounded,
+              text: fmtDate(event.startDate),
+            ),
+            const SizedBox(height: 3),
+            _EventInfoRow(
+              icon: Icons.location_on_outlined,
+              text: event.venue.isNotEmpty ? event.venue : '—',
+            ),
+          ],
+        ),
+      );
 
   @override
   Widget build(BuildContext context) {
+    // ── Dialog layout (centered, wide screens) ────────────────────────────
+    if (isDialog) {
+      return Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(child: _header(context)),
+                GestureDetector(
+                  onTap: () => Navigator.pop(context),
+                  child: Container(
+                    width: 32, height: 32,
+                    decoration: BoxDecoration(
+                      color: _S.fieldBg,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    alignment: Alignment.center,
+                    child: const Icon(Icons.close_rounded,
+                        size: 16, color: _S.muted),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const Divider(height: 1, color: _S.border),
+          Flexible(
+            child: ListView(
+              padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+              shrinkWrap: true,
+              children: _listChildren(),
+            ),
+          ),
+        ],
+      );
+    }
+
+    // ── Bottom-sheet layout (mobile) ─────────────────────────────────────
     return DraggableScrollableSheet(
-      initialChildSize: 0.6,
+      initialChildSize: 0.72,
       minChildSize:     0.35,
       maxChildSize:     0.92,
       expand:           false,
@@ -3748,7 +3952,7 @@ class _GroupSearchField extends StatelessWidget {
             onChanged: onChanged,
             style: _st(13, FontWeight.normal, _S.ink),
             decoration: InputDecoration(
-              hintText: 'Buscar por nombre o estilo…',
+              hintText: 'school.searchGroupHint'.tr(),
               hintStyle: _st(13, FontWeight.normal, _S.hint),
               border: InputBorder.none,
               isDense: true,
@@ -3771,8 +3975,17 @@ class _GroupSearchField extends StatelessWidget {
   }
 }
 
-// ─── Group level style helper (Dart 3 record) ─────────────────────────────────
+// ─── Group level helpers ──────────────────────────────────────────────────────
 typedef _LevelStyle = ({Color bg, Color text});
+
+// Maps DB value (always Spanish) to a translation key.
+String _levelLabel(String level) => switch (level.toLowerCase()) {
+  'principiante' => 'school.levelBeginner'.tr(),
+  'intermedio'   => 'school.levelIntermediate'.tr(),
+  'avanzado'     => 'school.levelAdvanced'.tr(),
+  'profesional'  => 'school.levelProfessional'.tr(),
+  _              => level,
+};
 
 _LevelStyle _levelStyle(String level) => switch (level.toLowerCase()) {
       'principiante' => (
@@ -3987,7 +4200,7 @@ class _GroupCardState extends State<_GroupCard> {
                       color: ls.bg,
                       borderRadius: BorderRadius.circular(20),
                     ),
-                    child: Text(widget.group.level,
+                    child: Text(_levelLabel(widget.group.level),
                         style: _st(t ? 12 : 11, FontWeight.w700, ls.text)),
                   ),
                 ]),
@@ -4346,7 +4559,7 @@ class _ActiveBadge extends StatelessWidget {
   }
 }
 
-// ─── Placeholder (Events / Alerts tabs) ──────────────────────────────────────
+// ─── Placeholder (Alerts tab) ────────────────────────────────────────────────
 class _PlaceholderContent extends StatelessWidget {
   final IconData icon;
   final String   labelKey;
@@ -4369,4 +4582,355 @@ class _PlaceholderContent extends StatelessWidget {
       ]),
     );
   }
+}
+
+// ─── Choreo Studio tab ────────────────────────────────────────────────────────
+class _ChoreoTab extends StatefulWidget {
+  const _ChoreoTab();
+
+  @override
+  State<_ChoreoTab> createState() => _ChoreoTabState();
+}
+
+class _ChoreoTabState extends State<_ChoreoTab>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _ctrl;
+  late final Animation<double>   _pulse;
+  bool _launching = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 2400),
+    )..repeat(reverse: true);
+    _pulse = CurvedAnimation(parent: _ctrl, curve: Curves.easeInOut);
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _launch() async {
+    if (_launching) return;
+    final raw = dotenv.env['URL_COREO'] ?? '';
+    if (raw.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('URL_COREO not configured')),
+        );
+      }
+      return;
+    }
+    final url = Uri.parse(raw.startsWith('http') ? raw : 'http://$raw');
+    setState(() => _launching = true);
+    try {
+      await launchUrl(url, mode: LaunchMode.externalApplication);
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('No se pudo abrir $raw')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _launching = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            Color(0xFF0F0A1E),
+            Color(0xFF1A0938),
+            Color(0xFF0D1B4B),
+            Color(0xFF050D1A),
+          ],
+          stops: [0.0, 0.35, 0.70, 1.0],
+        ),
+      ),
+      child: Stack(
+        children: [
+          // Ambient orbs
+          Positioned(
+            top: -80, left: -60,
+            child: _GlowOrb(color: const Color(0xFF7C3AED), size: 280, opacity: 0.18),
+          ),
+          Positioned(
+            bottom: -60, right: -40,
+            child: _GlowOrb(color: const Color(0xFF2563EB), size: 240, opacity: 0.20),
+          ),
+          Positioned(
+            top: 160, right: -30,
+            child: _GlowOrb(color: const Color(0xFFA855F7), size: 180, opacity: 0.12),
+          ),
+          // Grid lines overlay
+          CustomPaint(
+            painter: _GridPainter(),
+            size: Size.infinite,
+          ),
+          // Content
+          SafeArea(
+            child: Center(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 32),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // Animated icon ring
+                    AnimatedBuilder(
+                      animation: _pulse,
+                      builder: (_, child) => Container(
+                        width:  110 + _pulse.value * 8,
+                        height: 110 + _pulse.value * 8,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          gradient: RadialGradient(colors: [
+                            Color.lerp(const Color(0xFF7C3AED),
+                                const Color(0xFF2563EB), _pulse.value)!
+                                .withValues(alpha: 0.28),
+                            Colors.transparent,
+                          ]),
+                          border: Border.all(
+                            color: Color.lerp(const Color(0xFF7C3AED),
+                                const Color(0xFF60A5FA), _pulse.value)!
+                                .withValues(alpha: 0.55),
+                            width: 1.5,
+                          ),
+                        ),
+                        child: child,
+                      ),
+                      child: Center(
+                        child: Container(
+                          width: 72, height: 72,
+                          decoration: const BoxDecoration(
+                            shape: BoxShape.circle,
+                            gradient: LinearGradient(
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                              colors: [Color(0xFF7C3AED), Color(0xFF2563EB)],
+                            ),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Color(0x557C3AED),
+                                blurRadius: 32,
+                                spreadRadius: 4,
+                              ),
+                            ],
+                          ),
+                          child: const Icon(
+                            Icons.queue_music_rounded,
+                            color: Colors.white,
+                            size: 36,
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 28),
+                    // Title
+                    Text(
+                      'CHOREO STUDIO',
+                      style: GoogleFonts.outfit(
+                        fontSize: 34,
+                        fontWeight: FontWeight.w800,
+                        color: Colors.white,
+                        letterSpacing: 2.0,
+                        shadows: const [
+                          Shadow(
+                            color: Color(0x887C3AED),
+                            blurRadius: 24,
+                            offset: Offset(0, 4),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    // Subtitle
+                    Text(
+                      'Crea, edita y sincroniza\ntus coreografías en tiempo real',
+                      textAlign: TextAlign.center,
+                      style: GoogleFonts.outfit(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w400,
+                        color: const Color(0xFF94A3B8),
+                        height: 1.55,
+                      ),
+                    ),
+                    const SizedBox(height: 48),
+                    // CTA button
+                    _ChoreoLaunchButton(
+                      launching: _launching,
+                      onTap: _launch,
+                    ),
+                    const SizedBox(height: 20),
+                    // Fine print
+                    Text(
+                      'Se abrirá en una nueva ventana',
+                      style: GoogleFonts.jetBrainsMono(
+                        fontSize: 11,
+                        color: const Color(0xFF52525B),
+                        letterSpacing: 0.4,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ChoreoLaunchButton extends StatefulWidget {
+  final bool     launching;
+  final VoidCallback onTap;
+  const _ChoreoLaunchButton({required this.launching, required this.onTap});
+
+  @override
+  State<_ChoreoLaunchButton> createState() => _ChoreoLaunchButtonState();
+}
+
+class _ChoreoLaunchButtonState extends State<_ChoreoLaunchButton>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _hoverCtrl;
+  late final Animation<double>   _scale;
+  bool _hovered = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _hoverCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 160),
+    );
+    _scale = Tween<double>(begin: 1.0, end: 1.04)
+        .animate(CurvedAnimation(parent: _hoverCtrl, curve: Curves.easeOut));
+  }
+
+  @override
+  void dispose() {
+    _hoverCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return MouseRegion(
+      onEnter: (_) {
+        setState(() => _hovered = true);
+        _hoverCtrl.forward();
+      },
+      onExit: (_) {
+        setState(() => _hovered = false);
+        _hoverCtrl.reverse();
+      },
+      child: ScaleTransition(
+        scale: _scale,
+        child: GestureDetector(
+          onTap: widget.launching ? null : widget.onTap,
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 200),
+            width: 280,
+            height: 60,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(16),
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: _hovered
+                    ? [const Color(0xFF9333EA), const Color(0xFF3B82F6)]
+                    : [const Color(0xFF7C3AED), const Color(0xFF2563EB)],
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: const Color(0xFF7C3AED)
+                      .withValues(alpha: _hovered ? 0.55 : 0.38),
+                  blurRadius: _hovered ? 32 : 20,
+                  spreadRadius: _hovered ? 2 : 0,
+                  offset: const Offset(0, 6),
+                ),
+              ],
+            ),
+            child: widget.launching
+                ? const Center(
+                    child: SizedBox(
+                      width: 24, height: 24,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2.5,
+                        valueColor: AlwaysStoppedAnimation(Colors.white),
+                      ),
+                    ),
+                  )
+                : Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Icon(
+                        Icons.open_in_new_rounded,
+                        color: Colors.white,
+                        size: 20,
+                      ),
+                      const SizedBox(width: 10),
+                      Text(
+                        'Ir a Choreo Studio',
+                        style: GoogleFonts.outfit(
+                          fontSize: 17,
+                          fontWeight: FontWeight.w700,
+                          color: Colors.white,
+                          letterSpacing: 0.3,
+                        ),
+                      ),
+                    ],
+                  ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _GlowOrb extends StatelessWidget {
+  final Color  color;
+  final double size;
+  final double opacity;
+  const _GlowOrb({required this.color, required this.size, required this.opacity});
+
+  @override
+  Widget build(BuildContext context) => Container(
+        width: size, height: size,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          gradient: RadialGradient(colors: [
+            color.withValues(alpha: opacity),
+            Colors.transparent,
+          ]),
+        ),
+      );
+}
+
+class _GridPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = const Color(0x08FFFFFF)
+      ..strokeWidth = 0.5;
+    const step = 48.0;
+    for (double x = 0; x < size.width; x += step) {
+      canvas.drawLine(Offset(x, 0), Offset(x, size.height), paint);
+    }
+    for (double y = 0; y < size.height; y += step) {
+      canvas.drawLine(Offset(0, y), Offset(size.width, y), paint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(_GridPainter old) => false;
 }

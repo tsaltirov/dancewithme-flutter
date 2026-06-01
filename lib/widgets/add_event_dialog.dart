@@ -290,13 +290,12 @@ class _AddEventDialogState extends State<_AddEventDialog> {
     final w        = MediaQuery.of(context).size.width;
     final isMobile = w < 600;
 
-    final kb = MediaQuery.of(context).viewInsets.bottom;
     return Dialog(
       insetPadding: EdgeInsets.only(
         left:   isMobile ? 16 : 40,
         right:  isMobile ? 16 : 40,
         top:    isMobile ? 24 : 40,
-        bottom: kb + (isMobile ? 16 : 40),
+        bottom: isMobile ? 16 : 40,
       ),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
       backgroundColor: Colors.white,

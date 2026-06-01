@@ -14,7 +14,9 @@ import '../services/event_service.dart';
 import '../services/school_service.dart';
 import '../services/student_service.dart';
 import '../widgets/add_school_dialog.dart';
+import '../widgets/edit_school_dialog.dart';
 import '../widgets/logout_dialog.dart';
+import '../widgets/profile_tab.dart';
 import 'login_screen.dart';
 import 'school_screen.dart';
 
@@ -126,7 +128,7 @@ Widget _enterButton({required VoidCallback onTap, String? label}) =>
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Text(label ?? 'Entrar',
+            Text(label ?? 'home.btnEnter'.tr(),
                 style: GoogleFonts.plusJakartaSans(
                     fontSize: 15,
                     fontWeight: FontWeight.w700,
@@ -279,6 +281,35 @@ class _HomeScreenState extends State<HomeScreen>
     if (_user != null) await _reloadSchools(_user!.id);
   }
 
+  Future<void> _showEditSchool(School school) async {
+    final updated = await EditSchoolDialog.show(context, school);
+    if (updated == true && mounted) {
+      if (_user != null) await _reloadSchools(_user!.id);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Row(children: [
+            const Icon(Icons.check_circle_outline_rounded,
+                color: Colors.white, size: 18),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text('school.successUpdate'.tr(),
+                  style: GoogleFonts.plusJakartaSans(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w500,
+                      color: Colors.white)),
+            ),
+          ]),
+          backgroundColor: const Color(0xFF22C55E),
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          margin: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+          duration: const Duration(seconds: 3),
+        ),
+      );
+    }
+  }
+
   Future<void> _showAddSchool() async {
     final added = await AddSchoolDialog.show(context);
     if (added == true && mounted) {
@@ -345,6 +376,7 @@ class _HomeScreenState extends State<HomeScreen>
                     onTabSelect:   _switchTab,
                     onLogout:      _logout,
                     onAddSchool:   _showAddSchool,
+                    onEditSchool:  _showEditSchool,
                     onRetry:       () { if (_user != null) _reloadSchools(_user!.id); },
                   ),
                 )
@@ -379,17 +411,19 @@ class _HomeScreenState extends State<HomeScreen>
                                       totalEvents:   _totalEvents,
                                       onLogout:      _logout,
                                       onRefresh:     _onRefresh,
+                                      onEditSchool:  _showEditSchool,
                                       onRetry:       () { if (_user != null) _reloadSchools(_user!.id); })
                                   : _HomeBody(
-                                      safeBottom: safeBottom,
-                                      user:       _user,
-                                      schools:    _schools,
-                                      loading:    _loadingSchools,
-                                      error:      _schoolsError,
-                                      onLogout:   _logout,
-                                      onRefresh:  _onRefresh,
-                                      onRetry:    () { if (_user != null) _reloadSchools(_user!.id); }))
-                              : _PlaceholderTab(index: _tab),
+                                      safeBottom:   safeBottom,
+                                      user:         _user,
+                                      schools:      _schools,
+                                      loading:      _loadingSchools,
+                                      error:        _schoolsError,
+                                      onLogout:     _logout,
+                                      onRefresh:    _onRefresh,
+                                      onEditSchool: _showEditSchool,
+                                      onRetry:      () { if (_user != null) _reloadSchools(_user!.id); }))
+                              : _PlaceholderTab(index: _tab, user: _user),
                         ),
                       ),
                     ),
@@ -455,11 +489,13 @@ class _BgPainter extends CustomPainter {
 
 // ─── Placeholder for unimplemented tabs ───────────────────────────────────────
 class _PlaceholderTab extends StatelessWidget {
-  final int index;
-  const _PlaceholderTab({required this.index});
+  final int       index;
+  final AuthUser? user;
+  const _PlaceholderTab({required this.index, this.user});
   @override
   Widget build(BuildContext context) {
     if (index == 1) return const _MapShowTab();
+    if (index == 3 && user != null) return ProfileTab(user: user!);
     const keys = ['', '', 'home.tabCalendar', 'home.tabProfile'];
     return Center(
         child: Text(keys[index].tr(),
@@ -620,10 +656,11 @@ class _StatCard extends StatelessWidget {
 
 // ─── School image card (tablet top card + web grid) ───────────────────────────
 class _SchoolImageCard extends StatelessWidget {
-  final School school;
-  final int    index;
+  final School        school;
+  final int           index;
+  final VoidCallback? onEdit;
 
-  const _SchoolImageCard({required this.school, required this.index});
+  const _SchoolImageCard({required this.school, required this.index, this.onEdit});
 
   @override
   Widget build(BuildContext context) {
@@ -696,6 +733,11 @@ class _SchoolImageCard extends StatelessWidget {
               ],
             ),
           ),
+          if (onEdit != null)
+            Positioned(
+              top: 10, right: 10,
+              child: _SchoolEditBtn(onTap: onEdit),
+            ),
         ]),
       ),
     );
@@ -826,6 +868,39 @@ class _CircleBtn extends StatelessWidget {
   }
 }
 
+// ─── Floating edit button (glass pill) used on all school cards ───────────────
+class _SchoolEditBtn extends StatelessWidget {
+  final VoidCallback? onTap;
+  const _SchoolEditBtn({this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      child: GestureDetector(
+        onTap: onTap,
+        behavior: HitTestBehavior.opaque,
+        child: Container(
+          width: 34, height: 34,
+          decoration: BoxDecoration(
+            color: Colors.white.withValues(alpha: 0.22),
+            shape: BoxShape.circle,
+            border: Border.all(
+                color: Colors.white.withValues(alpha: 0.35), width: 1),
+            boxShadow: [
+              BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.14),
+                  blurRadius: 8,
+                  offset: const Offset(0, 2)),
+            ],
+          ),
+          child: const Icon(Icons.edit_rounded, color: Colors.white, size: 16),
+        ),
+      ),
+    );
+  }
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 //  MOBILE LAYOUT  (< 600px)
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -838,6 +913,7 @@ class _HomeBody extends StatelessWidget {
   final String?      error;
   final VoidCallback onLogout;
   final Future<void> Function() onRefresh;
+  final void Function(School)? onEditSchool;
   final VoidCallback? onRetry;
   const _HomeBody({
     required this.safeBottom,
@@ -847,6 +923,7 @@ class _HomeBody extends StatelessWidget {
     this.error,
     required this.onLogout,
     required this.onRefresh,
+    this.onEditSchool,
     this.onRetry,
   });
 
@@ -870,7 +947,7 @@ class _HomeBody extends StatelessWidget {
                   const SizedBox(height: 28),
                   _SchoolsCountCard(count: schools.length),
                   const SizedBox(height: 32),
-                  _MobileSchoolsSection(schools: schools, loading: loading, error: error, onRetry: onRetry),
+                  _MobileSchoolsSection(schools: schools, loading: loading, error: error, onEditSchool: onEditSchool, onRetry: onRetry),
                 ],
               ),
             ),
@@ -990,14 +1067,16 @@ class _SchoolsCountCard extends StatelessWidget {
 }
 
 class _MobileSchoolsSection extends StatelessWidget {
-  final List<School>  schools;
-  final bool          loading;
-  final String?       error;
-  final VoidCallback? onRetry;
+  final List<School>          schools;
+  final bool                  loading;
+  final String?               error;
+  final void Function(School)? onEditSchool;
+  final VoidCallback?         onRetry;
   const _MobileSchoolsSection({
     required this.schools,
     required this.loading,
     this.error,
+    this.onEditSchool,
     this.onRetry,
   });
   @override
@@ -1021,7 +1100,11 @@ class _MobileSchoolsSection extends StatelessWidget {
           LayoutBuilder(builder: (ctx, bc) {
             final twoCol = bc.maxWidth > 480;
             final cards = schools.asMap().entries
-                .map((e) => _MobileSchoolCard(school: e.value, index: e.key))
+                .map((e) => _MobileSchoolCard(
+                      school:  e.value,
+                      index:   e.key,
+                      onEdit:  onEditSchool != null ? () => onEditSchool!(e.value) : null,
+                    ))
                 .toList();
             if (twoCol && cards.length >= 2) {
               return Column(children: [
@@ -1053,10 +1136,11 @@ class _MobileSchoolsSection extends StatelessWidget {
 }
 
 class _MobileSchoolCard extends StatelessWidget {
-  final School school;
-  final int    index;
+  final School       school;
+  final int          index;
+  final VoidCallback? onEdit;
 
-  const _MobileSchoolCard({required this.school, required this.index});
+  const _MobileSchoolCard({required this.school, required this.index, this.onEdit});
 
   @override
   Widget build(BuildContext context) {
@@ -1152,6 +1236,11 @@ class _MobileSchoolCard extends StatelessWidget {
                 ],
               ),
             ),
+            if (onEdit != null)
+              Positioned(
+                top: 12, right: 12,
+                child: _SchoolEditBtn(onTap: onEdit),
+              ),
           ]),
         ),
       ),
@@ -1171,9 +1260,10 @@ class _TabletBody extends StatelessWidget {
   final String?       error;
   final int           totalStudents;
   final int           totalEvents;
-  final VoidCallback  onLogout;
-  final Future<void> Function() onRefresh;
-  final VoidCallback? onRetry;
+  final VoidCallback              onLogout;
+  final Future<void> Function()   onRefresh;
+  final void Function(School)?    onEditSchool;
+  final VoidCallback?             onRetry;
   const _TabletBody({
     required this.safeBottom,
     required this.user,
@@ -1184,6 +1274,7 @@ class _TabletBody extends StatelessWidget {
     this.totalEvents   = 0,
     required this.onLogout,
     required this.onRefresh,
+    this.onEditSchool,
     this.onRetry,
   });
 
@@ -1227,7 +1318,11 @@ class _TabletBody extends StatelessWidget {
                   runSpacing: spacing,
                   children: schools.asMap().entries.map((e) => SizedBox(
                     width: cardW,
-                    child: _SchoolImageCard(school: e.value, index: e.key),
+                    child: _SchoolImageCard(
+                      school: e.value,
+                      index:  e.key,
+                      onEdit: onEditSchool != null ? () => onEditSchool!(e.value) : null,
+                    ),
                   )).toList(),
                 );
               }),
@@ -1307,8 +1402,9 @@ class _WebLayout extends StatelessWidget {
   final int              totalEvents;
   final ValueChanged<int> onTabSelect;
   final VoidCallback     onLogout;
-  final VoidCallback     onAddSchool;
-  final VoidCallback?    onRetry;
+  final VoidCallback              onAddSchool;
+  final void Function(School)?    onEditSchool;
+  final VoidCallback?             onRetry;
 
   const _WebLayout({
     required this.tab,
@@ -1322,6 +1418,7 @@ class _WebLayout extends StatelessWidget {
     required this.onTabSelect,
     required this.onLogout,
     required this.onAddSchool,
+    this.onEditSchool,
     this.onRetry,
   });
 
@@ -1348,9 +1445,10 @@ class _WebLayout extends StatelessWidget {
                   key: ValueKey(tab),
                   child: tab == 0
                       ? _WebBody(schools: schools, loading: loading, onAddSchool: onAddSchool,
+                          onEditSchool: onEditSchool,
                           totalStudents: totalStudents, totalEvents: totalEvents,
                           error: error, onRetry: onRetry)
-                      : _PlaceholderTab(index: tab),
+                      : _PlaceholderTab(index: tab, user: user),
                 ),
               ),
             ),
@@ -1597,14 +1695,16 @@ class _WebBody extends StatelessWidget {
   final List<School>  schools;
   final bool          loading;
   final String?       error;
-  final VoidCallback  onAddSchool;
-  final int           totalStudents;
-  final int           totalEvents;
-  final VoidCallback? onRetry;
+  final VoidCallback              onAddSchool;
+  final void Function(School)?    onEditSchool;
+  final int                       totalStudents;
+  final int                       totalEvents;
+  final VoidCallback?             onRetry;
   const _WebBody({
     required this.schools,
     required this.loading,
     required this.onAddSchool,
+    this.onEditSchool,
     this.error,
     this.totalStudents = 0,
     this.totalEvents   = 0,
@@ -1689,7 +1789,11 @@ class _WebBody extends StatelessWidget {
                         runSpacing: spacing,
                         children: schools.asMap().entries.map((e) => SizedBox(
                           width: cardW,
-                          child: _SchoolImageCard(school: e.value, index: e.key),
+                          child: _SchoolImageCard(
+                            school: e.value,
+                            index:  e.key,
+                            onEdit: onEditSchool != null ? () => onEditSchool!(e.value) : null,
+                          ),
                         )).toList(),
                       );
                     }),

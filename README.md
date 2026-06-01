@@ -103,4 +103,4 @@ El módulo más completo. Dos conceptos separados:
 
 ---
 
-*Este documento se irá actualizando conforme avance el desarrollo.*
+*v1.0-beta.*

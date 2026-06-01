@@ -491,22 +491,29 @@ class _PayStudentDialogState extends State<_PayStudentDialog> {
                   ),
                 ),
                 const SizedBox(width: 8),
-                // Amount
+                // Amount — kept in Expanded so it takes remaining space
                 Expanded(
                   child: Text(
                     '€ ${p.amount.toStringAsFixed(2)}',
                     style: _ot(13, FontWeight.w600, _kInk),
+                    maxLines: 1,
                   ),
                 ),
                 // Method (if exists)
-                if (p.paymentMethod != null)
-                  Text(
-                    p.paymentMethod!,
-                    style: _ot(11, FontWeight.normal, _kMuted),
+                if (p.paymentMethod != null) ...[
+                  const SizedBox(width: 4),
+                  Flexible(
+                    child: Text(
+                      p.paymentMethod!,
+                      overflow: TextOverflow.ellipsis,
+                      maxLines: 1,
+                      style: _ot(11, FontWeight.normal, _kMuted),
+                    ),
                   ),
-                // Cobrar button (only for pending)
+                ],
+                // Compact toggle — circle icon to avoid crowding the amount text
                 if (!p.isPaid) ...[
-                  const SizedBox(width: 6),
+                  const SizedBox(width: 8),
                   GestureDetector(
                     onTap: () => setState(() {
                       if (isExpanded) {
@@ -520,27 +527,19 @@ class _PayStudentDialogState extends State<_PayStudentDialog> {
                       }
                     }),
                     child: Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 10, vertical: 4),
+                      width: 28, height: 28,
                       decoration: BoxDecoration(
                         color: isExpanded ? _kPrimary : const Color(0xFFEFF6FF),
-                        borderRadius: BorderRadius.circular(6),
+                        shape: BoxShape.circle,
                       ),
-                      child: Row(mainAxisSize: MainAxisSize.min, children: [
-                        Text(
-                          'payment.collectBtn'.tr(),
-                          style: _ot(11, FontWeight.w700,
-                              isExpanded ? Colors.white : _kPrimary),
-                        ),
-                        const SizedBox(width: 3),
-                        Icon(
-                          isExpanded
-                              ? Icons.expand_less_rounded
-                              : Icons.arrow_forward_rounded,
-                          size: 12,
-                          color: isExpanded ? Colors.white : _kPrimary,
-                        ),
-                      ]),
+                      alignment: Alignment.center,
+                      child: Icon(
+                        isExpanded
+                            ? Icons.expand_less_rounded
+                            : Icons.chevron_right_rounded,
+                        size: 15,
+                        color: isExpanded ? Colors.white : _kPrimary,
+                      ),
                     ),
                   ),
                 ],
@@ -571,6 +570,27 @@ class _PayStudentDialogState extends State<_PayStudentDialog> {
         children: [
           const Divider(color: _kBorder, height: 1),
           const SizedBox(height: 10),
+          // Show previously registered note if present
+          if (p.notes != null && p.notes!.isNotEmpty) ...[
+            Container(
+              padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFFF7ED),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: const Color(0xFFFED7AA)),
+              ),
+              child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                const Icon(Icons.sticky_note_2_outlined,
+                    size: 14, color: _kMuted),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(p.notes!,
+                      style: _ot(12, FontWeight.normal, _kInk)),
+                ),
+              ]),
+            ),
+            const SizedBox(height: 10),
+          ],
           Text('payment.methodSelectTitle'.tr(),
               style: _ot(12, FontWeight.w600, _kMuted)),
           const SizedBox(height: 8),

@@ -170,9 +170,12 @@ class _State extends State<_EditStudentDialog> {
     final isMobile = w < 600;
 
     return Dialog(
-      insetPadding: isMobile
-          ? const EdgeInsets.fromLTRB(16, 48, 16, 16)
-          : const EdgeInsets.symmetric(horizontal: 40, vertical: 40),
+      insetPadding: EdgeInsets.only(
+        left:   isMobile ? 16 : 40,
+        right:  isMobile ? 16 : 40,
+        top:    isMobile ? 24 : 40,
+        bottom: isMobile ? 16 : 40,
+      ),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
       backgroundColor: Colors.white,
       elevation: 0,
