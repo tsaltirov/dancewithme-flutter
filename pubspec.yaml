@@ -1,5 +1,5 @@
 name: dancewithme
-description: "A new Flutter project."
+description: "Dance app"
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
 publish_to: 'none' # Remove this line if you wish to publish to pub.dev
@@ -41,13 +41,38 @@ dependencies:
   go_router: ^17.1.0
   image_picker: ^1.2.1
   flutter_dotenv: ^6.0.0
-  google_fonts: ^6.2.1
+  google_fonts: ^8.0.2
   easy_localization: ^3.0.8
+  http: ^1.6.0
+  flutter_secure_storage: ^10.0.0
+  supabase_flutter: ^2.12.4
+  animations: ^2.2.0
+  file_picker: ^11.0.2
+  flutter_map: ^8.3.0
+  latlong2: ^0.9.1
+  url_launcher: ^6.3.0
+  flutter_native_splash: ^2.4.7
+
+flutter_launcher_icons:
+  android: true
+  ios: true
+  image_path: "assets/icons/app_icon.png"
+  min_sdk_android: 21
+
+flutter_native_splash:
+  color: "#FFFFFF"
+  image: assets/icons/app_icon.png
+  android: true
+  ios: true
+  android_12:
+    color: "#FFFFFF"
+    image: assets/icons/app_icon.png
+    icon_background_color: "#FFFFFF"
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
-
+  flutter_launcher_icons: ^0.14.4
 
   # The "flutter_lints" package below contains a set of recommended lints to
   # encourage good coding practices. The lint set provided by the package is
@@ -68,10 +93,10 @@ flutter:
   # the material Icons class.
   uses-material-design: true
 
-  # To add assets to your application, add an assets section, like this:
-  # assets:
-  #   - images/a_dot_burr.jpeg
-  #   - images/a_dot_ham.jpeg
+  assets:
+    - assets/translations/
+    - assets/icons/
+    - .env
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images

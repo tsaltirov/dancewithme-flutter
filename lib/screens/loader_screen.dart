@@ -2,8 +2,12 @@ import 'dart:async';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
+import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+
+import '../services/auth_service.dart';
+import 'home_screen.dart';
 
 // ─── Palette (from loader.pen) ────────────────────────────────
 const Color _kPurple   = Color(0xFF7C5CFC);
@@ -49,15 +53,18 @@ class _LoaderScreenState extends State<LoaderScreen>
     _sparkle = AnimationController(vsync: this, duration: const Duration(milliseconds:  2200))..repeat();
     _fade    = AnimationController(vsync: this, duration: const Duration(milliseconds:   450));
 
-    _navTimer = Timer(const Duration(milliseconds: 2800), _exit);
+    _navTimer = Timer(const Duration(milliseconds: 4500), _exit);
   }
 
   void _exit() {
     if (!mounted) return;
-    _fade.forward().then((_) {
+    _fade.forward().then((_) async {
       if (!mounted) return;
+      final loggedIn = await AuthService.isLoggedIn();
+      if (!mounted) return;
+      final destination = loggedIn ? const HomeScreen() : widget.nextScreen;
       Navigator.of(context).pushReplacement(PageRouteBuilder(
-        pageBuilder: (_, __, ___) => widget.nextScreen,
+        pageBuilder: (_, __, ___) => destination,
         transitionsBuilder: (_, a, __, child) =>
             FadeTransition(opacity: a, child: child),
         transitionDuration: const Duration(milliseconds: 400),
@@ -239,7 +246,7 @@ class _LoaderScreenState extends State<LoaderScreen>
             colors: [_kPurpleDk, _kPurple, _kPurpleLt],
           ).createShader(r),
           child: Text(
-            'DanceWithMe',
+            'app.name'.tr(),
             style: GoogleFonts.outfit(
               fontSize: 28,
               fontWeight: FontWeight.w700,
@@ -250,7 +257,7 @@ class _LoaderScreenState extends State<LoaderScreen>
         ),
         const SizedBox(height: 12),
         Text(
-          'Getting the rhythm ready...',
+          'loader.message'.tr(),
           style: GoogleFonts.outfit(fontSize: 14, color: _kGray),
         ),
       ],
