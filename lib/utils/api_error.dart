@@ -9,6 +9,12 @@ import 'dart:convert';
 // Keys must match your assets/translations/*.json structure.
 
 const Map<String, String> _kErrorMap = {
+  // ── Generic backend codes ─────────────────────────────────────────────────
+  'AUTH_ERROR':               'auth.errorInvalidCredentials',
+  'NOT_FOUND':                'auth.errorServer',
+  'VALIDATION_ERROR':         'auth.errorServer',
+  'INTERNAL_ERROR':           'auth.errorServer',
+
   // ── Auth ──────────────────────────────────────────────────────────────────
   'INVALID_CREDENTIALS':      'auth.errorInvalidCredentials',
   'USER_NOT_FOUND':           'auth.errorInvalidCredentials',
@@ -33,7 +39,9 @@ const Map<String, String> _kErrorMap = {
   // ── Wardrobe / Costumes ───────────────────────────────────────────────────
   'COSTUME_NOT_FOUND':        'wardrobe.loadError',
   'COSTUME_ALREADY_ASSIGNED': 'wardrobe.alreadyAssigned',
-  'INSUFFICIENT_STOCK':       'wardrobe.assignError',
+  'COSTUME_NO_STOCK':         'wardrobe.noStock',
+  'COSTUME_DUPLICATE_NAME':   'wardrobe.duplicateName',
+  'COSTUME_INVALID_STATUS':   'wardrobe.invalidStatus',
   'ASSIGNMENT_NOT_FOUND':     'wardrobe.returnError',
 };
 
@@ -61,6 +69,26 @@ class ApiError {
 
   /// Returns the raw `errorCode` string from the body, or null.
   static String? errorCode(String body) => _extractCode(body);
+
+  /// Returns the best user-facing message string (not a translation key).
+  ///
+  /// For codes where the backend `message` carries specific detail
+  /// (e.g. COSTUME_NO_STOCK includes the item name), we use it directly.
+  /// Otherwise falls back to [trKey] so the caller can call `.tr()`.
+  static String userMessage(String body, int statusCode) {
+    const useRawMessage = {
+      'COSTUME_NO_STOCK',
+      'COSTUME_DUPLICATE_NAME',
+      'COSTUME_INVALID_STATUS',
+      'VALIDATION_ERROR',
+    };
+    final code = _extractCode(body);
+    if (code != null && useRawMessage.contains(code)) {
+      final raw = message(body);
+      if (raw != null && raw.isNotEmpty) return raw;
+    }
+    return trKey(body, statusCode);
+  }
 
   /// Returns the `message` string from the body, or null.
   static String? message(String body) {

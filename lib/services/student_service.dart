@@ -6,6 +6,7 @@ import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:http/http.dart' as http;
 
 import 'auth_service.dart';
+import '../utils/api_error.dart';
 
 // ─── Typed error ──────────────────────────────────────────────────────────────
 class StudentException implements Exception {
@@ -123,7 +124,7 @@ class StudentService {
     }
 
     if (res.statusCode != 200 && res.statusCode != 201) {
-      throw StudentException('Server error ${res.statusCode}');
+      throw StudentException(ApiError.trKey(res.body, res.statusCode));
     }
 
     try {
@@ -159,7 +160,7 @@ class StudentService {
     }
 
     if (res.statusCode != 200) {
-      throw StudentException('Server error ${res.statusCode}');
+      throw StudentException(ApiError.trKey(res.body, res.statusCode));
     }
 
     final body = jsonDecode(res.body) as Map<String, dynamic>;
@@ -254,7 +255,7 @@ class StudentService {
     }
 
     if (res.statusCode != 200 && res.statusCode != 201) {
-      throw StudentException('Server error ${res.statusCode}');
+      throw StudentException(ApiError.trKey(res.body, res.statusCode));
     }
 
     final body = jsonDecode(res.body) as Map<String, dynamic>;
@@ -304,7 +305,7 @@ class StudentService {
     }
 
     if (res.statusCode != 200 && res.statusCode != 201) {
-      throw StudentException('Server error ${res.statusCode}');
+      throw StudentException(ApiError.trKey(res.body, res.statusCode));
     }
 
     final body = jsonDecode(res.body) as Map<String, dynamic>;
@@ -335,7 +336,7 @@ class StudentService {
     }
 
     if (res.statusCode != 200 && res.statusCode != 204) {
-      throw StudentException('Server error ${res.statusCode}');
+      throw StudentException(ApiError.trKey(res.body, res.statusCode));
     }
   }
 

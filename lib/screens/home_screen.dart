@@ -15,6 +15,7 @@ import '../services/school_service.dart';
 import '../services/student_service.dart';
 import '../widgets/add_school_dialog.dart';
 import '../widgets/edit_school_dialog.dart';
+import '../utils/app_toast.dart';
 import '../widgets/logout_dialog.dart';
 import '../widgets/profile_tab.dart';
 import 'login_screen.dart';
@@ -286,27 +287,7 @@ class _HomeScreenState extends State<HomeScreen>
     if (updated == true && mounted) {
       if (_user != null) await _reloadSchools(_user!.id);
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Row(children: [
-            const Icon(Icons.check_circle_outline_rounded,
-                color: Colors.white, size: 18),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Text('school.successUpdate'.tr(),
-                  style: GoogleFonts.plusJakartaSans(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w500,
-                      color: Colors.white)),
-            ),
-          ]),
-          backgroundColor: const Color(0xFF22C55E),
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-          margin: const EdgeInsets.fromLTRB(16, 0, 16, 24),
-          duration: const Duration(seconds: 3),
-        ),
-      );
+      AppToast.success(context, 'school.successUpdate'.tr());
     }
   }
 
@@ -317,28 +298,7 @@ class _HomeScreenState extends State<HomeScreen>
       // Uses cached _user.id to avoid a second secure-storage read (web crypto issue).
       if (_user != null) await _reloadSchools(_user!.id);
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Row(children: [
-            const Icon(Icons.check_circle_outline_rounded,
-                color: Colors.white, size: 18),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Text('school.successCreate'.tr(),
-                  style: GoogleFonts.plusJakartaSans(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w500,
-                      color: Colors.white)),
-            ),
-          ]),
-          backgroundColor: const Color(0xFF22C55E),
-          behavior: SnackBarBehavior.floating,
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-          margin: const EdgeInsets.fromLTRB(16, 0, 16, 24),
-          duration: const Duration(seconds: 3),
-        ),
-      );
+      AppToast.success(context, 'school.successCreate'.tr());
     }
   }
 
@@ -682,63 +642,67 @@ class _SchoolImageCard extends StatelessWidget {
         closedShape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         closedColor: grads[0],
         closedElevation: 0,
-        closedBuilder: (_, openContainer) => Stack(children: [
-          // Background: network image or gradient
-          Positioned.fill(
-            child: school.hasImage
-                ? Image.network(school.imageUrl, fit: BoxFit.cover,
-                    errorBuilder: (_, __, ___) => Container(
-                        decoration: BoxDecoration(gradient: LinearGradient(
-                            begin: Alignment.topLeft, end: Alignment.bottomRight,
-                            colors: grads))))
-                : Container(decoration: BoxDecoration(gradient: LinearGradient(
-                    begin: Alignment.topLeft, end: Alignment.bottomRight,
-                    colors: grads))),
-          ),
-          // Dark overlay for legibility
-          if (school.hasImage)
+        closedBuilder: (_, openContainer) => SizedBox(
+          height: 230,
+          child: Stack(children: [
+            // Background: network image or gradient
             Positioned.fill(
-              child: Container(
-                decoration: BoxDecoration(gradient: LinearGradient(
-                  begin: Alignment.bottomCenter, end: Alignment.topCenter,
-                  colors: [Colors.black.withValues(alpha: 0.65), Colors.transparent])),
+              child: school.hasImage
+                  ? Image.network(school.imageUrl, fit: BoxFit.cover,
+                      errorBuilder: (_, __, ___) => Container(
+                          decoration: BoxDecoration(gradient: LinearGradient(
+                              begin: Alignment.topLeft, end: Alignment.bottomRight,
+                              colors: grads))))
+                  : Container(decoration: BoxDecoration(gradient: LinearGradient(
+                      begin: Alignment.topLeft, end: Alignment.bottomRight,
+                      colors: grads))),
+            ),
+            // Dark overlay for legibility
+            if (school.hasImage)
+              Positioned.fill(
+                child: Container(
+                  decoration: BoxDecoration(gradient: LinearGradient(
+                    begin: Alignment.bottomCenter, end: Alignment.topCenter,
+                    colors: [Colors.black.withValues(alpha: 0.65), Colors.transparent])),
+                ),
+              ),
+            // Content fills the card so the button stays at the bottom
+            Positioned.fill(
+              child: Padding(
+                padding: const EdgeInsets.all(18),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(school.name,
+                        style: _pjs(17, FontWeight.w700, Colors.white, ls: -0.2),
+                        maxLines: 2, overflow: TextOverflow.ellipsis),
+                    if (school.address.isNotEmpty) ...[
+                      const SizedBox(height: 5),
+                      Row(children: [
+                        Icon(Icons.location_on_rounded, size: 12,
+                            color: Colors.white.withValues(alpha: 0.75)),
+                        const SizedBox(width: 4),
+                        Flexible(
+                          child: Text(school.address,
+                              style: _pjs(12, FontWeight.w400,
+                                  Colors.white.withValues(alpha: 0.75)),
+                              maxLines: 1, overflow: TextOverflow.ellipsis),
+                        ),
+                      ]),
+                    ],
+                    const Spacer(),
+                    _enterButton(onTap: openContainer),
+                  ],
+                ),
               ),
             ),
-          // Content
-          Padding(
-            padding: const EdgeInsets.all(18),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(school.name,
-                    style: _pjs(17, FontWeight.w700, Colors.white, ls: -0.2),
-                    maxLines: 2, overflow: TextOverflow.ellipsis),
-                if (school.address.isNotEmpty) ...[
-                  const SizedBox(height: 5),
-                  Row(children: [
-                    Icon(Icons.location_on_rounded, size: 12,
-                        color: Colors.white.withValues(alpha: 0.75)),
-                    const SizedBox(width: 4),
-                    Flexible(
-                      child: Text(school.address,
-                          style: _pjs(12, FontWeight.w400,
-                              Colors.white.withValues(alpha: 0.75)),
-                          maxLines: 1, overflow: TextOverflow.ellipsis),
-                    ),
-                  ]),
-                ],
-                const SizedBox(height: 14),
-                _enterButton(onTap: openContainer),
-              ],
-            ),
-          ),
-          if (onEdit != null)
-            Positioned(
-              top: 10, right: 10,
-              child: _SchoolEditBtn(onTap: onEdit),
-            ),
-        ]),
+            if (onEdit != null)
+              Positioned(
+                top: 10, right: 10,
+                child: _SchoolEditBtn(onTap: onEdit),
+              ),
+          ]),
+        ),
       ),
     );
   }
@@ -1165,8 +1129,8 @@ class _MobileSchoolCard extends StatelessWidget {
         closedShape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
         closedColor: grads[0],
         closedElevation: 0,
-        closedBuilder: (_, openContainer) => ConstrainedBox(
-          constraints: const BoxConstraints(minHeight: 200),
+        closedBuilder: (_, openContainer) => SizedBox(
+          height: 252,
           child: Stack(children: [
             // Background: image or gradient
             Positioned.fill(
@@ -1187,53 +1151,54 @@ class _MobileSchoolCard extends StatelessWidget {
                   decoration: BoxDecoration(gradient: LinearGradient(
                     begin: Alignment.bottomCenter, end: Alignment.topCenter,
                     colors: [
-                      Colors.black.withValues(alpha: 0.65),
-                      Colors.black.withValues(alpha: 0.05),
+                      Colors.black.withValues(alpha: 0.68),
+                      Colors.black.withValues(alpha: 0.04),
                     ],
                   )),
                 ),
               ),
-            // Content
-            Padding(
-              padding: const EdgeInsets.all(22),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withValues(alpha: 0.15),
-                      borderRadius: BorderRadius.circular(100),
-                      border: Border.all(color: Colors.white.withValues(alpha: 0.25)),
-                    ),
-                    child: Text(numStr,
-                        style: _pjs(12, FontWeight.w700,
-                            Colors.white.withValues(alpha: 0.85), ls: 1.0)),
-                  ),
-                  const SizedBox(height: 12),
-                  Text(school.name,
-                      style: GoogleFonts.plusJakartaSans(
-                          fontSize: 20, fontWeight: FontWeight.w800,
-                          height: 1.15, letterSpacing: -0.5, color: Colors.white),
-                      maxLines: 2, overflow: TextOverflow.ellipsis),
-                  if (school.address.isNotEmpty) ...[
-                    const SizedBox(height: 6),
-                    Row(children: [
-                      Icon(Icons.location_on_rounded, size: 12,
-                          color: Colors.white.withValues(alpha: 0.75)),
-                      const SizedBox(width: 4),
-                      Flexible(
-                        child: Text(school.address,
-                            style: _pjs(12, FontWeight.w400,
-                                Colors.white.withValues(alpha: 0.75)),
-                            maxLines: 1, overflow: TextOverflow.ellipsis),
+            // Content fills the card so the button stays at the bottom
+            Positioned.fill(
+              child: Padding(
+                padding: const EdgeInsets.all(22),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.15),
+                        borderRadius: BorderRadius.circular(100),
+                        border: Border.all(color: Colors.white.withValues(alpha: 0.25)),
                       ),
-                    ]),
+                      child: Text(numStr,
+                          style: _pjs(12, FontWeight.w700,
+                              Colors.white.withValues(alpha: 0.85), ls: 1.0)),
+                    ),
+                    const SizedBox(height: 12),
+                    Text(school.name,
+                        style: GoogleFonts.plusJakartaSans(
+                            fontSize: 20, fontWeight: FontWeight.w800,
+                            height: 1.15, letterSpacing: -0.5, color: Colors.white),
+                        maxLines: 2, overflow: TextOverflow.ellipsis),
+                    if (school.address.isNotEmpty) ...[
+                      const SizedBox(height: 6),
+                      Row(children: [
+                        Icon(Icons.location_on_rounded, size: 12,
+                            color: Colors.white.withValues(alpha: 0.75)),
+                        const SizedBox(width: 4),
+                        Flexible(
+                          child: Text(school.address,
+                              style: _pjs(12, FontWeight.w400,
+                                  Colors.white.withValues(alpha: 0.75)),
+                              maxLines: 1, overflow: TextOverflow.ellipsis),
+                        ),
+                      ]),
+                    ],
+                    const Spacer(),
+                    _enterButton(onTap: openContainer),
                   ],
-                  const SizedBox(height: 16),
-                  _enterButton(onTap: openContainer),
-                ],
+                ),
               ),
             ),
             if (onEdit != null)

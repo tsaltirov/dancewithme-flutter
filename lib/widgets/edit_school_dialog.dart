@@ -5,6 +5,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../services/school_service.dart';
+import '../utils/app_toast.dart';
 
 // ─── Palette ──────────────────────────────────────────────────────────────────
 const Color _kPurple   = Color(0xFF7C5CFC);
@@ -52,10 +53,6 @@ class _EditSchoolDialogState extends State<EditSchoolDialog> {
   bool       _isLoading        = false;
   bool       _isPickingImage   = false;
 
-  static TextStyle _t(double sz, FontWeight fw, Color c,
-      {double ls = 0}) =>
-      GoogleFonts.plusJakartaSans(
-          fontSize: sz, fontWeight: fw, color: c, letterSpacing: ls);
 
   @override
   void initState() {
@@ -75,18 +72,26 @@ class _EditSchoolDialogState extends State<EditSchoolDialog> {
     super.dispose();
   }
 
-  // ── Pick new image ──────────────────────────────────────────────────────────
-  Future<void> _pickImage() async {
+  // ── Photo picker ─────────────────────────────────────────────────────────────
+  Future<void> _requestImage() async {
     if (_isLoading) return;
+    if (kIsWeb) { await _pickFrom(ImageSource.gallery); return; }
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _EditImgSheet(onPick: _pickFrom),
+    );
+  }
+
+  Future<void> _pickFrom(ImageSource source) async {
     setState(() => _isPickingImage = true);
     try {
       final file = await ImagePicker()
-          .pickImage(source: ImageSource.gallery, imageQuality: 85);
+          .pickImage(source: source, imageQuality: 85);
       if (file == null || !mounted) return;
       final bytes = await file.readAsBytes();
       final ext   = file.name.contains('.')
-          ? file.name.split('.').last.toLowerCase()
-          : 'jpg';
+          ? file.name.split('.').last.toLowerCase() : 'jpg';
       setState(() {
         _newImageBytes = bytes;
         _newImageExt   = ext.isNotEmpty ? ext : 'jpg';
@@ -126,22 +131,7 @@ class _EditSchoolDialogState extends State<EditSchoolDialog> {
     }
   }
 
-  void _snackError(String msg) {
-    ScaffoldMessenger.of(context)
-      ..clearSnackBars()
-      ..showSnackBar(SnackBar(
-        content: Row(children: [
-          const Icon(Icons.error_outline_rounded, color: Colors.white, size: 18),
-          const SizedBox(width: 10),
-          Expanded(child: Text(msg, style: _t(14, FontWeight.w500, Colors.white))),
-        ]),
-        backgroundColor: const Color(0xFFEF4444),
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        margin: const EdgeInsets.fromLTRB(16, 0, 16, 24),
-        duration: const Duration(seconds: 4),
-      ));
-  }
+  void _snackError(String msg) => AppToast.error(context, msg);
 
   // ─── Build ─────────────────────────────────────────────────────────────────
   @override
@@ -187,7 +177,7 @@ class _EditSchoolDialogState extends State<EditSchoolDialog> {
                                 newBytes:    _newImageBytes,
                                 existingUrl: widget.school.imageUrl,
                                 isLoading:   _isPickingImage,
-                                onTap:       _pickImage,
+                                onTap:       _requestImage,
                               ),
                               const SizedBox(height: 18),
                               _EditField(
@@ -581,5 +571,96 @@ class _EditActions extends StatelessWidget {
         ),
       ),
     ]);
+  }
+}
+
+// ─── Camera / Gallery bottom sheet ───────────────────────────────────────────
+class _EditImgSheet extends StatelessWidget {
+  final Future<void> Function(ImageSource) onPick;
+  const _EditImgSheet({required this.onPick});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 40, height: 4,
+            decoration: BoxDecoration(
+                color: const Color(0xFFE5E4E1),
+                borderRadius: BorderRadius.circular(2)),
+          ),
+          const SizedBox(height: 20),
+          Row(children: [
+            Expanded(child: _EBtn(
+              icon: Icons.camera_alt_rounded,
+              label: 'wardrobe.imgSourceCamera'.tr(),
+              onTap: () { Navigator.pop(context); onPick(ImageSource.camera); },
+            )),
+            const SizedBox(width: 12),
+            Expanded(child: _EBtn(
+              icon: Icons.photo_library_rounded,
+              label: 'wardrobe.imgSourceGallery'.tr(),
+              onTap: () { Navigator.pop(context); onPick(ImageSource.gallery); },
+            )),
+          ]),
+          const SizedBox(height: 12),
+          GestureDetector(
+            onTap: () => Navigator.pop(context),
+            child: Container(
+              height: 48,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                  color: const Color(0xFFF5F4F1),
+                  borderRadius: BorderRadius.circular(14)),
+              child: Text('form.cancel'.tr(),
+                  style: GoogleFonts.plusJakartaSans(
+                      fontSize: 15, fontWeight: FontWeight.w600,
+                      color: const Color(0xFF6D6C6A))),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _EBtn extends StatelessWidget {
+  final IconData icon;
+  final String   label;
+  final VoidCallback onTap;
+  const _EBtn({required this.icon, required this.label, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        height: 90,
+        decoration: BoxDecoration(
+          gradient: const LinearGradient(
+            colors: [_kPurple, _kPurpleLt],
+            begin: Alignment.topLeft, end: Alignment.bottomRight,
+          ),
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: const [
+            BoxShadow(color: Color(0x447C5CFC), blurRadius: 12, offset: Offset(0, 4))
+          ],
+        ),
+        child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+          Icon(icon, color: Colors.white, size: 28),
+          const SizedBox(height: 6),
+          Text(label,
+              style: GoogleFonts.plusJakartaSans(
+                  fontSize: 12, fontWeight: FontWeight.w600, color: Colors.white)),
+        ]),
+      ),
+    );
   }
 }

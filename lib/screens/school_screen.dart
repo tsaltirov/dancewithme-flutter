@@ -23,6 +23,7 @@ import '../widgets/add_student_dialog.dart';
 import '../widgets/edit_group_dialog.dart';
 import '../widgets/edit_student_dialog.dart';
 import '../widgets/wardrobe_tab.dart';
+import '../utils/app_toast.dart';
 
 // ─── Design tokens (blue palette — school theme) ─────────────────────────────
 class _S {
@@ -339,19 +340,12 @@ Future<void> _handleAddCsv() async {
 
       // 5. Show result
       if (errorMsg != null) {
-        ScaffoldMessenger.of(context)
-          ..clearSnackBars()
-          ..showSnackBar(_csvSnackBar(
-            message: errorMsg,
-            isSuccess: false,
-          ));
+        AppToast.error(context, errorMsg);
       } else {
         final label = count > 0
             ? '$count alumno${count == 1 ? '' : 's'} importado${count == 1 ? '' : 's'} correctamente'
             : 'Alumnos importados correctamente';
-        ScaffoldMessenger.of(context)
-          ..clearSnackBars()
-          ..showSnackBar(_csvSnackBar(message: label, isSuccess: true));
+        AppToast.success(context, label);
         _loadData(); // reload student list
       }
     } catch (_) {
@@ -359,36 +353,6 @@ Future<void> _handleAddCsv() async {
     }
   }
 
-  SnackBar _csvSnackBar({required String message, required bool isSuccess}) {
-    return SnackBar(
-      content: Row(children: [
-        Icon(
-          isSuccess
-              ? Icons.check_circle_outline_rounded
-              : Icons.error_outline_rounded,
-          color: Colors.white,
-          size: 18,
-        ),
-        const SizedBox(width: 10),
-        Expanded(
-          child: Text(
-            message,
-            style: GoogleFonts.outfit(
-                fontSize: 14,
-                fontWeight: FontWeight.w500,
-                color: Colors.white),
-          ),
-        ),
-      ]),
-      backgroundColor:
-          isSuccess ? const Color(0xFF22C55E) : _S.errorRed,
-      behavior: SnackBarBehavior.floating,
-      shape:
-          RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      margin: const EdgeInsets.fromLTRB(16, 0, 16, 24),
-      duration: const Duration(seconds: 4),
-    );
-  }
 
   List<Student> get _students {
     // Remap isPaid to reflect the selected period, not "has any payment ever"
@@ -1306,23 +1270,6 @@ class _StudentsBody extends StatelessWidget {
 }
 
 // ─── Snack helpers ────────────────────────────────────────────────────────────
-SnackBar _successSnack(String msg) => SnackBar(
-      content: Text(msg,
-          style: GoogleFonts.outfit(
-              fontSize: 13, fontWeight: FontWeight.w500, color: Colors.white)),
-      backgroundColor: _S.paidText,
-      behavior: SnackBarBehavior.floating,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-    );
-
-SnackBar _errorSnack(String msg) => SnackBar(
-      content: Text(msg,
-          style: GoogleFonts.outfit(
-              fontSize: 13, fontWeight: FontWeight.w500, color: Colors.white)),
-      backgroundColor: _S.errorRed,
-      behavior: SnackBarBehavior.floating,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-    );
 
 // ─── Delete confirmation dialog ───────────────────────────────────────────────
 Future<bool> _confirmDeleteStudent(BuildContext context, String name) async {
@@ -1608,7 +1555,7 @@ class _TableRow extends StatelessWidget {
                 final ok = await showEditStudentDialog(context, student: student);
                 if (!context.mounted) return;
                 if (ok) {
-                  ScaffoldMessenger.of(context).showSnackBar(_successSnack('student.updateSuccess'.tr()));
+                  AppToast.success(context, 'student.updateSuccess'.tr());
                   onReload?.call();
                 }
               },
@@ -1637,13 +1584,11 @@ class _TableRow extends StatelessWidget {
                 try {
                   await StudentService.deleteStudent(student.id);
                   if (!context.mounted) return;
-                  ScaffoldMessenger.of(context).showSnackBar(_successSnack('student.deleteSuccess'.tr()));
+                  AppToast.success(context, 'student.deleteSuccess'.tr());
                   onReload?.call();
                 } catch (e) {
                   if (!context.mounted) return;
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    _errorSnack(e is StudentException ? e.message : 'student.deleteError'.tr()),
-                  );
+                  AppToast.error(context, e is StudentException ? e.message : 'student.deleteError'.tr());
                 }
               },
             ),
@@ -1734,7 +1679,7 @@ class _MobileStudentCard extends StatelessWidget {
                     final ok = await showEditStudentDialog(context, student: student);
                     if (!context.mounted) return;
                     if (ok) {
-                      ScaffoldMessenger.of(context).showSnackBar(_successSnack('student.updateSuccess'.tr()));
+                      AppToast.success(context, 'student.updateSuccess'.tr());
                       onReload?.call();
                     }
                   },
@@ -1763,13 +1708,11 @@ class _MobileStudentCard extends StatelessWidget {
                     try {
                       await StudentService.deleteStudent(student.id);
                       if (!context.mounted) return;
-                      ScaffoldMessenger.of(context).showSnackBar(_successSnack('student.deleteSuccess'.tr()));
+                      AppToast.success(context, 'student.deleteSuccess'.tr());
                       onReload?.call();
                     } catch (e) {
                       if (!context.mounted) return;
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        _errorSnack(e is StudentException ? e.message : 'student.deleteError'.tr()),
-                      );
+                      AppToast.error(context, e is StudentException ? e.message : 'student.deleteError'.tr());
                     }
                   },
                 ),
@@ -2211,27 +2154,7 @@ class _EventsTabState extends State<_EventsTab> {
   Future<void> _onEventAdded() async {
     await _loadEvents();
     if (!mounted) return;
-    ScaffoldMessenger.of(context)
-      ..clearSnackBars()
-      ..showSnackBar(SnackBar(
-        content: Row(children: [
-          const Icon(Icons.check_circle_outline_rounded,
-              color: Colors.white, size: 18),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text('school.eventCreated'.tr(),
-                style: GoogleFonts.outfit(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w500,
-                    color: Colors.white)),
-          ),
-        ]),
-        backgroundColor: const Color(0xFF22C55E),
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        margin: const EdgeInsets.fromLTRB(16, 0, 16, 24),
-        duration: const Duration(seconds: 3),
-      ));
+    AppToast.success(context, 'school.eventCreated'.tr());
   }
 
   @override
@@ -2505,7 +2428,7 @@ class _EventCardState extends State<_EventCard> {
       final dt     = DateTime.parse(iso).toLocal();
       final days   = 'ui.daysShort'.tr().split(',');
       final months = 'ui.monthsShort'.tr().split(',');
-      return '${days[dt.weekday - 1]}, ${dt.day} ${months[dt.month - 1]} · '
+      return '${days[dt.weekday - 1]}, ${dt.day} ${months[dt.month - 1]} ${dt.year} · '
           '${dt.hour.toString().padLeft(2, '0')}:'
           '${dt.minute.toString().padLeft(2, '0')}';
     } catch (_) { return iso; }
@@ -2618,8 +2541,7 @@ class _EventCardState extends State<_EventCard> {
       _detailsLoaded = false;
       await _loadDetails();
       if (!mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(_successSnack('school.enrollSuccess'.tr()));
+      AppToast.success(context, 'school.enrollSuccess'.tr());
     }
   }
 
@@ -2627,7 +2549,7 @@ class _EventCardState extends State<_EventCard> {
     final ok = await showEditEventDialog(context, event: widget.event);
     if (!mounted) return;
     if (ok) {
-      ScaffoldMessenger.of(context).showSnackBar(_successSnack('school.eventUpdated'.tr()));
+      AppToast.success(context, 'school.eventUpdated'.tr());
       widget.onUpdated?.call();
     }
   }
@@ -2642,15 +2564,12 @@ class _EventCardState extends State<_EventCard> {
     try {
       await EventService.cancelEvent(widget.event.id);
       if (!mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(_successSnack('eventForm.cancelSuccess'.tr()));
+      AppToast.success(context, 'eventForm.cancelSuccess'.tr());
       widget.onUpdated?.call();
     } catch (e) {
       if (!mounted) return;
       setState(() => _cancelling = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        _errorSnack(e is EventException ? e.message : 'eventForm.cancelError'.tr()),
-      );
+      AppToast.error(context, e is EventException ? e.message : 'eventForm.cancelError'.tr());
     }
   }
 
@@ -2674,14 +2593,11 @@ class _EventCardState extends State<_EventCard> {
       _detailsLoaded = false;
       await _loadDetails();
       if (!mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(_successSnack('school.unregisterSuccess'.tr()));
+      AppToast.success(context, 'school.unregisterSuccess'.tr());
     } catch (e) {
       if (!mounted) return;
       setState(() => _unregistering = null);
-      ScaffoldMessenger.of(context).showSnackBar(
-        _errorSnack(e is EventException ? e.message : 'school.unregisterError'.tr()),
-      );
+      AppToast.error(context, e is EventException ? e.message : 'school.unregisterError'.tr());
     }
   }
 
@@ -3728,27 +3644,7 @@ class _GroupsTabState extends State<_GroupsTab> {
   Future<void> _onGroupAdded() async {
     await _loadGroups();
     if (!mounted) return;
-    ScaffoldMessenger.of(context)
-      ..clearSnackBars()
-      ..showSnackBar(SnackBar(
-        content: Row(children: [
-          const Icon(Icons.check_circle_outline_rounded,
-              color: Colors.white, size: 18),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text('school.groupCreated'.tr(),
-                style: GoogleFonts.outfit(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w500,
-                    color: Colors.white)),
-          ),
-        ]),
-        backgroundColor: const Color(0xFF22C55E),
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        margin: const EdgeInsets.fromLTRB(16, 0, 16, 24),
-        duration: const Duration(seconds: 3),
-      ));
+    AppToast.success(context, 'school.groupCreated'.tr());
   }
 
   @override
@@ -4038,6 +3934,7 @@ class _GroupCardState extends State<_GroupCard> {
   bool                    _showAllEnrollments  = false;
   List<GroupEnrollment>   _enrollments         = [];
   String?                 _enrollmentsErr;
+  int?                    _withdrawingId;
 
   String _initials(String name) {
     final parts = name.trim().split(' ').where((p) => p.isNotEmpty).toList();
@@ -4075,8 +3972,7 @@ class _GroupCardState extends State<_GroupCard> {
     final updated = await showEditGroupDialog(context, group: widget.group);
     if (!mounted) return;
     if (updated) {
-      ScaffoldMessenger.of(context).showSnackBar(
-          _successSnack('school.groupUpdated'.tr()));
+      AppToast.success(context, 'school.groupUpdated'.tr());
       widget.onUpdated?.call();
     }
   }
@@ -4099,8 +3995,7 @@ class _GroupCardState extends State<_GroupCard> {
       _showAllEnrollments = false;
       await _loadEnrollments();
       if (!mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(_successSnack('school.studentEnrolled'.tr()));
+      AppToast.success(context, 'school.studentEnrolled'.tr());
     }
   }
 
@@ -4110,6 +4005,7 @@ class _GroupCardState extends State<_GroupCard> {
       builder: (_) => _WithdrawEnrollmentDialog(studentName: enrollment.studentName),
     );
     if (!(confirmed ?? false) || !mounted) return;
+    setState(() => _withdrawingId = enrollment.id);
     try {
       await GroupService.withdrawEnrollment(enrollment.id);
       if (!mounted) return;
@@ -4117,13 +4013,12 @@ class _GroupCardState extends State<_GroupCard> {
       _showAllEnrollments = false;
       await _loadEnrollments();
       if (!mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(_successSnack('school.withdrawSuccess'.tr()));
+      AppToast.success(context, 'school.withdrawSuccess'.tr());
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        _errorSnack(e is GroupException ? e.message : 'school.withdrawError'.tr()),
-      );
+      AppToast.error(context, e is GroupException ? e.message : 'school.withdrawError'.tr());
+    } finally {
+      if (mounted) setState(() => _withdrawingId = null);
     }
   }
 
@@ -4348,16 +4243,11 @@ class _GroupCardState extends State<_GroupCard> {
                   try {
                     await GroupService.deleteGroup(widget.group.id);
                     if (!mounted) return;
-                    ScaffoldMessenger.of(context)
-                        .showSnackBar(_successSnack('school.groupDeleted'.tr()));
+                    AppToast.success(context, 'school.groupDeleted'.tr());
                     widget.onUpdated?.call();
                   } catch (e) {
                     if (!mounted) return;
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      _errorSnack(e is GroupException
-                          ? e.message
-                          : 'groupForm.deleteError'.tr()),
-                    );
+                    AppToast.error(context, e is GroupException ? e.message : 'groupForm.deleteError'.tr());
                   }
                 },
                 child: Container(
@@ -4374,7 +4264,7 @@ class _GroupCardState extends State<_GroupCard> {
                     const Icon(Icons.delete_outline_rounded,
                         size: 14, color: Color(0xFFDC2626)),
                     const SizedBox(width: 5),
-                    Text('Eliminar',
+                    Text('form.delete'.tr(),
                         style: _st(12, FontWeight.w600,
                             const Color(0xFFDC2626))),
                   ]),
@@ -4431,8 +4321,7 @@ class _GroupCardState extends State<_GroupCard> {
     if (_enrollmentsErr != null) {
       return Padding(
         padding: const EdgeInsets.only(top: 8),
-        child: Text(_enrollmentsErr!,
-            style: _st(12, FontWeight.normal, _S.errorRed)),
+        child: Text(_enrollmentsErr!, style: _st(12, FontWeight.normal, _S.errorRed)),
       );
     }
     if (!_enrollmentsLoaded) return const SizedBox.shrink();
@@ -4446,15 +4335,12 @@ class _GroupCardState extends State<_GroupCard> {
 
     // Active first, then inactive
     final sorted = [..._enrollments]
-      ..sort((a, b) {
-        if (a.active == b.active) return 0;
-        return a.active ? -1 : 1;
-      });
+      ..sort((a, b) => a.active == b.active ? 0 : (a.active ? -1 : 1));
 
-    final total      = sorted.length;
-    final showCount  = _showAllEnrollments ? total : total.clamp(0, 5);
-    final visible    = sorted.take(showCount).toList();
-    final remaining  = total - showCount;
+    final total     = sorted.length;
+    final showCount = _showAllEnrollments ? total : total.clamp(0, 5);
+    final visible   = sorted.take(showCount).toList();
+    final remaining = total - showCount;
 
     return Padding(
       padding: const EdgeInsets.only(top: 10),
@@ -4464,43 +4350,63 @@ class _GroupCardState extends State<_GroupCard> {
         children: [
           for (var i = 0; i < visible.length; i++)
             Padding(
-              padding: const EdgeInsets.only(bottom: 6),
+              padding: const EdgeInsets.only(bottom: 10),
               child: Row(children: [
+                // Avatar — same size as _ParticipantRow
                 Container(
-                  width: 28, height: 28,
+                  width: 40, height: 40,
                   decoration: BoxDecoration(
                       shape: BoxShape.circle, color: _S.avBg(i)),
                   alignment: Alignment.center,
                   child: Text(_initials(visible[i].studentName),
-                      style: _st(9, FontWeight.w700, _S.avTxt(i))),
+                      style: _st(12, FontWeight.w700, _S.avTxt(i))),
                 ),
-                const SizedBox(width: 8),
-                Flexible(
-                  child: Text(visible[i].studentName,
-                      style: _st(12, FontWeight.w500, _S.ink),
-                      overflow: TextOverflow.ellipsis),
-                ),
-                const SizedBox(width: 6),
-                _ActiveBadge(active: visible[i].active),
-                if (visible[i].active) ...[
-                  const SizedBox(width: 4),
-                  Tooltip(
-                    message: 'Dar de baja',
-                    child: GestureDetector(
-                      onTap: () => _handleWithdraw(visible[i]),
-                      child: Container(
-                        width: 24, height: 24,
-                        decoration: const BoxDecoration(
-                          color: Color(0xFFFEF2F2),
-                          shape: BoxShape.circle,
-                        ),
-                        alignment: Alignment.center,
-                        child: const Icon(Icons.logout_rounded,
-                            size: 12, color: Color(0xFFDC2626)),
-                      ),
-                    ),
+                const SizedBox(width: 12),
+                // Name + active badge
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(visible[i].studentName,
+                          style: _st(14, FontWeight.w600, _S.ink),
+                          overflow: TextOverflow.ellipsis),
+                      const SizedBox(height: 2),
+                      _ActiveBadge(active: visible[i].active),
+                    ],
                   ),
-                ],
+                ),
+                const SizedBox(width: 10),
+                // Withdraw button — same style as event's unregister button
+                if (visible[i].active)
+                  _withdrawingId == visible[i].id
+                      ? const SizedBox(
+                          width: 20, height: 20,
+                          child: CircularProgressIndicator(
+                              color: Color(0xFFDC2626), strokeWidth: 2))
+                      : GestureDetector(
+                          onTap: () => _handleWithdraw(visible[i]),
+                          child: Container(
+                            height: 36,
+                            padding: const EdgeInsets.symmetric(horizontal: 12),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFFEF2F2),
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(
+                                  color: const Color(0xFFDC2626)
+                                      .withValues(alpha: 0.3)),
+                            ),
+                            alignment: Alignment.center,
+                            child: Row(mainAxisSize: MainAxisSize.min, children: [
+                              const Icon(Icons.person_remove_outlined,
+                                  size: 14, color: Color(0xFFDC2626)),
+                              const SizedBox(width: 5),
+                              Text('school.withdrawBtn'.tr(),
+                                  style: _st(12, FontWeight.w600,
+                                      const Color(0xFFDC2626))),
+                            ]),
+                          ),
+                        ),
               ]),
             ),
           if (remaining > 0)
@@ -4618,11 +4524,7 @@ class _ChoreoTabState extends State<_ChoreoTab>
     if (_launching) return;
     final raw = dotenv.env['URL_COREO'] ?? '';
     if (raw.isEmpty) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('URL_COREO not configured')),
-        );
-      }
+      if (mounted) AppToast.error(context, 'school.choreoNotConfigured'.tr());
       return;
     }
     final url = Uri.parse(raw.startsWith('http') ? raw : 'http://$raw');
@@ -4630,14 +4532,108 @@ class _ChoreoTabState extends State<_ChoreoTab>
     try {
       await launchUrl(url, mode: LaunchMode.externalApplication);
     } catch (_) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('No se pudo abrir $raw')),
-        );
-      }
+      if (mounted) AppToast.error(context, 'school.choreoLaunchError'.tr());
     } finally {
       if (mounted) setState(() => _launching = false);
     }
+  }
+
+  // ── Icon + title + subtitle ──────────────────────────────────────────────
+  Widget _choreoHero() {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        AnimatedBuilder(
+          animation: _pulse,
+          builder: (_, child) => Container(
+            width:  110 + _pulse.value * 8,
+            height: 110 + _pulse.value * 8,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              gradient: RadialGradient(colors: [
+                Color.lerp(const Color(0xFF7C3AED),
+                    const Color(0xFF2563EB), _pulse.value)!
+                    .withValues(alpha: 0.28),
+                Colors.transparent,
+              ]),
+              border: Border.all(
+                color: Color.lerp(const Color(0xFF7C3AED),
+                    const Color(0xFF60A5FA), _pulse.value)!
+                    .withValues(alpha: 0.55),
+                width: 1.5,
+              ),
+            ),
+            child: child,
+          ),
+          child: Center(
+            child: Container(
+              width: 72, height: 72,
+              decoration: const BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [Color(0xFF7C3AED), Color(0xFF2563EB)],
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: Color(0x557C3AED),
+                    blurRadius: 32,
+                    spreadRadius: 4,
+                  ),
+                ],
+              ),
+              child: const Icon(Icons.queue_music_rounded,
+                  color: Colors.white, size: 36),
+            ),
+          ),
+        ),
+        const SizedBox(height: 28),
+        Text(
+          'CHOREO STUDIO',
+          textAlign: TextAlign.center,
+          style: GoogleFonts.outfit(
+            fontSize: 34,
+            fontWeight: FontWeight.w800,
+            color: Colors.white,
+            letterSpacing: 2.0,
+            shadows: const [
+              Shadow(color: Color(0x887C3AED), blurRadius: 24, offset: Offset(0, 4)),
+            ],
+          ),
+        ),
+        const SizedBox(height: 10),
+        Text(
+          'school.choreoSubtitle'.tr(),
+          textAlign: TextAlign.center,
+          style: GoogleFonts.outfit(
+            fontSize: 14,
+            fontWeight: FontWeight.w400,
+            color: const Color(0xFF94A3B8),
+            height: 1.55,
+          ),
+        ),
+      ],
+    );
+  }
+
+  // ── Button + fine print ──────────────────────────────────────────────────
+  Widget _choreoCta() {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _ChoreoLaunchButton(launching: _launching, onTap: _launch),
+        const SizedBox(height: 20),
+        Text(
+          'school.choreoOpenWindow'.tr(),
+          style: GoogleFonts.jetBrainsMono(
+            fontSize: 11,
+            color: const Color(0xFF52525B),
+            letterSpacing: 0.4,
+          ),
+        ),
+      ],
+    );
   }
 
   @override
@@ -4678,110 +4674,39 @@ class _ChoreoTabState extends State<_ChoreoTab>
           ),
           // Content
           SafeArea(
-            child: Center(
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 32),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    // Animated icon ring
-                    AnimatedBuilder(
-                      animation: _pulse,
-                      builder: (_, child) => Container(
-                        width:  110 + _pulse.value * 8,
-                        height: 110 + _pulse.value * 8,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          gradient: RadialGradient(colors: [
-                            Color.lerp(const Color(0xFF7C3AED),
-                                const Color(0xFF2563EB), _pulse.value)!
-                                .withValues(alpha: 0.28),
-                            Colors.transparent,
-                          ]),
-                          border: Border.all(
-                            color: Color.lerp(const Color(0xFF7C3AED),
-                                const Color(0xFF60A5FA), _pulse.value)!
-                                .withValues(alpha: 0.55),
-                            width: 1.5,
-                          ),
-                        ),
-                        child: child,
-                      ),
-                      child: Center(
-                        child: Container(
-                          width: 72, height: 72,
-                          decoration: const BoxDecoration(
-                            shape: BoxShape.circle,
-                            gradient: LinearGradient(
-                              begin: Alignment.topLeft,
-                              end: Alignment.bottomRight,
-                              colors: [Color(0xFF7C3AED), Color(0xFF2563EB)],
-                            ),
-                            boxShadow: [
-                              BoxShadow(
-                                color: Color(0x557C3AED),
-                                blurRadius: 32,
-                                spreadRadius: 4,
-                              ),
-                            ],
-                          ),
-                          child: const Icon(
-                            Icons.queue_music_rounded,
-                            color: Colors.white,
-                            size: 36,
-                          ),
-                        ),
-                      ),
+            child: LayoutBuilder(
+              builder: (ctx, bc) {
+                final wide = bc.maxWidth >= 800;
+                if (wide) {
+                  return Row(children: [
+                    // Left: icon + title + subtitle
+                    Expanded(
+                      child: Center(child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 40),
+                        child: _choreoHero(),
+                      )),
                     ),
-                    const SizedBox(height: 28),
-                    // Title
-                    Text(
-                      'CHOREO STUDIO',
-                      style: GoogleFonts.outfit(
-                        fontSize: 34,
-                        fontWeight: FontWeight.w800,
-                        color: Colors.white,
-                        letterSpacing: 2.0,
-                        shadows: const [
-                          Shadow(
-                            color: Color(0x887C3AED),
-                            blurRadius: 24,
-                            offset: Offset(0, 4),
-                          ),
-                        ],
-                      ),
+                    // Right: button + fine print
+                    Expanded(
+                      child: Center(child: _choreoCta()),
                     ),
-                    const SizedBox(height: 10),
-                    // Subtitle
-                    Text(
-                      'Crea, edita y sincroniza\ntus coreografías en tiempo real',
-                      textAlign: TextAlign.center,
-                      style: GoogleFonts.outfit(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w400,
-                        color: const Color(0xFF94A3B8),
-                        height: 1.55,
-                      ),
+                  ]);
+                }
+                // Mobile / narrow: stacked
+                return Center(
+                  child: SingleChildScrollView(
+                    padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 40),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        _choreoHero(),
+                        const SizedBox(height: 48),
+                        _choreoCta(),
+                      ],
                     ),
-                    const SizedBox(height: 48),
-                    // CTA button
-                    _ChoreoLaunchButton(
-                      launching: _launching,
-                      onTap: _launch,
-                    ),
-                    const SizedBox(height: 20),
-                    // Fine print
-                    Text(
-                      'Se abrirá en una nueva ventana',
-                      style: GoogleFonts.jetBrainsMono(
-                        fontSize: 11,
-                        color: const Color(0xFF52525B),
-                        letterSpacing: 0.4,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
+                  ),
+                );
+              },
             ),
           ),
         ],
@@ -4880,7 +4805,7 @@ class _ChoreoLaunchButtonState extends State<_ChoreoLaunchButton>
                       ),
                       const SizedBox(width: 10),
                       Text(
-                        'Ir a Choreo Studio',
+                        'school.choreoLaunchBtn'.tr(),
                         style: GoogleFonts.outfit(
                           fontSize: 17,
                           fontWeight: FontWeight.w700,

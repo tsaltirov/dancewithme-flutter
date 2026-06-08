@@ -7,6 +7,7 @@ import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:http/http.dart' as http;
 
 import 'auth_service.dart';
+import '../utils/api_error.dart';
 
 // ─── Typed error ──────────────────────────────────────────────────────────────
 class EventException implements Exception {
@@ -87,7 +88,7 @@ class EventService {
     }
 
     if (res.statusCode != 200) {
-      throw EventException('Server error ${res.statusCode}');
+      throw EventException(ApiError.trKey(res.body, res.statusCode));
     }
 
     final body = jsonDecode(res.body) as Map<String, dynamic>;
@@ -139,7 +140,7 @@ class EventService {
     }
 
     if (res.statusCode != 200 && res.statusCode != 201) {
-      throw EventException('Server error ${res.statusCode}');
+      throw EventException(ApiError.trKey(res.body, res.statusCode));
     }
 
     final body = jsonDecode(res.body) as Map<String, dynamic>;
@@ -191,7 +192,7 @@ class EventService {
     }
 
     if (res.statusCode != 200 && res.statusCode != 201) {
-      throw EventException('Server error ${res.statusCode}');
+      throw EventException(ApiError.trKey(res.body, res.statusCode));
     }
 
     final body = jsonDecode(res.body) as Map<String, dynamic>;
@@ -220,7 +221,7 @@ class EventService {
     }
 
     if (res.statusCode != 200) {
-      throw EventException('Server error ${res.statusCode}');
+      throw EventException(ApiError.trKey(res.body, res.statusCode));
     }
 
     final body = jsonDecode(res.body) as Map<String, dynamic>;
@@ -270,7 +271,7 @@ class EventService {
     }
 
     if (res.statusCode != 200 && res.statusCode != 201) {
-      throw EventException('Server error ${res.statusCode}');
+      throw EventException(ApiError.trKey(res.body, res.statusCode));
     }
 
     final body = jsonDecode(res.body) as Map<String, dynamic>;
@@ -299,7 +300,7 @@ class EventService {
     }
 
     if (res.statusCode != 200) {
-      throw EventException('Server error ${res.statusCode}');
+      throw EventException(ApiError.trKey(res.body, res.statusCode));
     }
 
     final body = jsonDecode(res.body) as Map<String, dynamic>;
@@ -333,7 +334,7 @@ class EventService {
     }
 
     if (res.statusCode != 200 && res.statusCode != 204) {
-      throw EventException('Server error ${res.statusCode}');
+      throw EventException(ApiError.trKey(res.body, res.statusCode));
     }
   }
 
@@ -361,7 +362,7 @@ class EventService {
     }
 
     if (res.statusCode != 200 && res.statusCode != 204) {
-      throw EventException('Server error ${res.statusCode}');
+      throw EventException(ApiError.trKey(res.body, res.statusCode));
     }
   }
 
@@ -396,7 +397,7 @@ class EventService {
     }
 
     if (res.statusCode != 200 && res.statusCode != 201) {
-      throw EventException('Server error ${res.statusCode}');
+      throw EventException(ApiError.trKey(res.body, res.statusCode));
     }
 
     final body = jsonDecode(res.body) as Map<String, dynamic>;
@@ -477,7 +478,7 @@ extension EventPriceService on EventService {
     }
 
     if (res.statusCode != 200 && res.statusCode != 201) {
-      throw EventException('Server error ${res.statusCode}');
+      throw EventException(ApiError.trKey(res.body, res.statusCode));
     }
 
     final body = jsonDecode(res.body) as Map<String, dynamic>;

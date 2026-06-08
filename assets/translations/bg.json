@@ -46,7 +46,21 @@
     "errorInvalidCode": "Невалиден или изтекъл код",
     "resetSuccess": "Паролата е обновена!",
     "resetSuccessDesc": "Паролата ти беше успешно променена. Вече можеш да влезеш.",
-    "goToLogin": "Към вход"
+    "goToLogin": "Към вход",
+    "register": "Регистрация",
+    "noAccount": "Нямате акаунт?",
+    "haveAccount": "Вече имате акаунт?",
+    "registerTitle": "Създай акаунт",
+    "registerSubtitle": "Започни танцовото си пътуване днес",
+    "firstName": "Собствено име",
+    "lastName": "Фамилия",
+    "registerBtn": "Създай акаунт",
+    "registerSuccess": "Акаунтът е създаден! Добре дошли в DanceWithMe.",
+    "validationName": "Собственото име е задължително",
+    "validationLastName": "Фамилията е задължителна",
+    "addPhoto": "Добави снимка",
+    "changePhoto": "Смени снимка",
+    "photoHint": "Незадължително · Докоснете за добавяне"
   },
   "home": {
     "greetMorning": "Добро утро,",
@@ -169,7 +183,12 @@
     "groupBadge": "Група",
     "beFirst": "Бъди първият",
     "enrolledFmt": "{count} записани",
-    "seatsFmt": "{count} места"
+    "seatsFmt": "{count} места",
+    "choreoSubtitle": "Създавай, редактирай и синхронизирай\nhoreографиите си в реално време",
+    "choreoLaunchBtn": "Към Choreo Studio",
+    "choreoOpenWindow": "Ще се отвори в нов прозорец",
+    "choreoLaunchError": "Неуспешно отваряне на URL",
+    "choreoNotConfigured": "URL на Choreo Studio не е конфигуриран"
   },
   "dialog": {
     "logout": {
@@ -396,6 +415,9 @@
     "confirmAssign": "Потвърди назначението",
     "assignSuccess": "Костюмът е назначен успешно",
     "assignError": "Грешка при назначаване на костюм",
+    "noStock": "Няма налични бройки за този костюм",
+    "duplicateName": "Вече съществува костюм с това име",
+    "invalidStatus": "Тази операция не е разрешена при текущия статус на костюма",
     "inactiveTooltip": "Костюмът е неактивен — активирайте го, за да назначите",
     "assignmentsSection": "НАЗНАЧЕНИЯ",
     "tabEntregados": "Предадени",
