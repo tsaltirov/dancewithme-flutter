@@ -4,6 +4,7 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../services/payment_service.dart';
 import '../services/student_service.dart';
+import '../utils/app_toast.dart';
 
 // ─── Palette ──────────────────────────────────────────────────────────────────
 const _kPrimary    = Color(0xFF2563EB);
@@ -66,7 +67,6 @@ class _PayStudentDialogState extends State<_PayStudentDialog> {
   late int    _month;
   String?     _method;
   bool        _saving    = false;
-  String?     _saveErr;
   final _amountCtrl = TextEditingController(text: '60.00');
   final _notesCtrl  = TextEditingController();
 
@@ -77,7 +77,6 @@ class _PayStudentDialogState extends State<_PayStudentDialog> {
   int?          _expandedPayId;
   String?       _cobrarMethod;
   int?          _cobrandoId;
-  String?       _cobrarErr;
 
   bool _hasChanges = false;
 
@@ -127,10 +126,10 @@ class _PayStudentDialogState extends State<_PayStudentDialog> {
   Future<void> _createPayment() async {
     final amount = double.tryParse(_amountCtrl.text.trim().replaceAll(',', '.'));
     if (amount == null || amount <= 0) {
-      setState(() => _saveErr = 'payment.invalidAmount'.tr());
+      AppToast.error(context, 'payment.invalidAmount'.tr());
       return;
     }
-    setState(() { _saving = true; _saveErr = null; });
+    setState(() => _saving = true);
     try {
       await PaymentService.createPayment(
         studentId:     widget.student.id,
@@ -144,25 +143,23 @@ class _PayStudentDialogState extends State<_PayStudentDialog> {
       );
       if (!mounted) return;
       setState(() {
-        _saving      = false;
-        _hasChanges  = true;
-        _method      = null;
+        _saving     = false;
+        _hasChanges = true;
+        _method     = null;
       });
       _notesCtrl.clear();
       _loadPayments();
     } catch (e) {
       if (!mounted) return;
-      setState(() {
-        _saving  = false;
-        _saveErr = e is PaymentException ? e.message : 'payment.createError'.tr();
-      });
+      setState(() => _saving = false);
+      AppToast.error(context, e is PaymentException ? e.message : 'payment.createError'.tr());
     }
   }
 
   // ── Mark as paid ──────────────────────────────────────────────────────────
   Future<void> _markAsPaid(int paymentId) async {
     if (_cobrarMethod == null) return;
-    setState(() { _cobrandoId = paymentId; _cobrarErr = null; });
+    setState(() => _cobrandoId = paymentId);
     try {
       await PaymentService.markAsPaid(id: paymentId, paymentMethod: _cobrarMethod!);
       if (!mounted) return;
@@ -175,10 +172,8 @@ class _PayStudentDialogState extends State<_PayStudentDialog> {
       _loadPayments();
     } catch (e) {
       if (!mounted) return;
-      setState(() {
-        _cobrandoId = null;
-        _cobrarErr  = e is PaymentException ? e.message : 'payment.collectError'.tr();
-      });
+      setState(() => _cobrandoId = null);
+      AppToast.error(context, e is PaymentException ? e.message : 'payment.collectError'.tr());
     }
   }
 
@@ -388,10 +383,6 @@ class _PayStudentDialogState extends State<_PayStudentDialog> {
           decoration: _fieldDec('payment.notesHint'.tr()),
         ),
 
-        if (_saveErr != null) ...[
-          const SizedBox(height: 10),
-          _ErrorBanner(message: _saveErr!),
-        ],
         const SizedBox(height: 16),
 
         // Register button
@@ -519,11 +510,9 @@ class _PayStudentDialogState extends State<_PayStudentDialog> {
                       if (isExpanded) {
                         _expandedPayId = null;
                         _cobrarMethod  = null;
-                        _cobrarErr     = null;
                       } else {
                         _expandedPayId = p.id;
                         _cobrarMethod  = null;
-                        _cobrarErr     = null;
                       }
                     }),
                     child: Container(
@@ -620,10 +609,6 @@ class _PayStudentDialogState extends State<_PayStudentDialog> {
               );
             }),
           ),
-          if (_cobrarErr != null) ...[
-            const SizedBox(height: 8),
-            _ErrorBanner(message: _cobrarErr!),
-          ],
           const SizedBox(height: 10),
           Opacity(
             opacity: _cobrarMethod == null ? 0.4 : 1.0,

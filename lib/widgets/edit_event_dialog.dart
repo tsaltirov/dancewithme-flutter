@@ -1403,7 +1403,10 @@ class _PrimaryButton extends StatelessWidget {
                   width: 20, height: 20,
                   child: CircularProgressIndicator(
                       strokeWidth: 2.5, color: Colors.white))
-              : Text(label, style: _ot(14, FontWeight.w600, Colors.white)),
+              : Text(label,
+                  style: _ot(14, FontWeight.w600, Colors.white),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis),
         ),
       );
 }

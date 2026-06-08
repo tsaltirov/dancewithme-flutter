@@ -7,6 +7,7 @@ import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:http/http.dart' as http;
 
 import 'auth_service.dart';
+import '../utils/api_error.dart';
 
 // ─── Typed error ──────────────────────────────────────────────────────────────
 class PaymentException implements Exception {
@@ -89,7 +90,7 @@ class PaymentService {
     }
 
     if (res.statusCode != 200) {
-      throw PaymentException('Server error ${res.statusCode}');
+      throw PaymentException(ApiError.userMessage(res.body, res.statusCode));
     }
 
     final body = jsonDecode(res.body) as Map<String, dynamic>;
@@ -143,7 +144,7 @@ class PaymentService {
     }
 
     if (res.statusCode != 200 && res.statusCode != 201) {
-      throw PaymentException('Server error ${res.statusCode}');
+      throw PaymentException(ApiError.userMessage(res.body, res.statusCode));
     }
 
     final body = jsonDecode(res.body) as Map<String, dynamic>;
@@ -178,7 +179,7 @@ class PaymentService {
     }
 
     if (res.statusCode != 200 && res.statusCode != 201) {
-      throw PaymentException('Server error ${res.statusCode}');
+      throw PaymentException(ApiError.userMessage(res.body, res.statusCode));
     }
 
     final body = jsonDecode(res.body) as Map<String, dynamic>;

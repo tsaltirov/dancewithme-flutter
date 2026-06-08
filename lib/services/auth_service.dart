@@ -133,6 +133,75 @@ class AuthService {
     }
   }
 
+  // ── POST /api/v1/auth/register ────────────────────────────────────────────
+  // Same response shape as /login.
+  static Future<AuthUser> register({
+    required String name,
+    required String lastName,
+    required String email,
+    required String password,
+    String? imageUrl,
+  }) async {
+    final http.Response res;
+    try {
+      res = await http
+          .post(
+            Uri.parse('$_baseUrl/api/v1/auth/register'),
+            headers: {'Content-Type': 'application/json; charset=UTF-8'},
+            body: jsonEncode({
+              'name':     name.trim(),
+              'lastName': lastName.trim(),
+              'email':    email.trim().toLowerCase(),
+              'password': password,
+              if (imageUrl != null && imageUrl.isNotEmpty) 'imageUrl': imageUrl,
+            }),
+          )
+          .timeout(const Duration(seconds: 15));
+    } on TimeoutException {
+      throw const AuthException('auth.errorTimeout');
+    } on SocketException {
+      throw const AuthException('auth.errorNoConnection');
+    }
+
+    if (kDebugMode) {
+      debugPrint('[AuthService] POST /api/v1/auth/register → ${res.statusCode}');
+    }
+
+    switch (res.statusCode) {
+      case 200:
+      case 201:
+        final body     = jsonDecode(res.body) as Map<String, dynamic>;
+        final data     = body['data'] as Map<String, dynamic>?;
+        final token    = data?['accessToken']  as String?;
+        final refresh  = data?['refreshToken'] as String?;
+        final userJson = data?['user'] as Map<String, dynamic>?;
+
+        if (data == null || token == null || token.isEmpty) {
+          throw const AuthException('auth.errorServer');
+        }
+
+        final user = AuthUser.fromJson(userJson ?? {});
+
+        await Future.wait([
+          _storage.write(key: _kAccessToken,  value: token),
+          if (refresh != null)
+            _storage.write(key: _kRefreshToken, value: refresh),
+          _storage.write(key: _kUserId,       value: user.id),
+          _storage.write(key: _kUserName,     value: user.name),
+          _storage.write(key: _kUserLastName, value: user.lastName),
+          _storage.write(key: _kUserEmail,    value: user.email),
+          _storage.write(key: _kUserRole,     value: user.role),
+        ]);
+
+        if (kIsWeb) await _safeRead(_kAccessToken);
+
+        return user;
+
+      default:
+        throw AuthException(ApiError.userMessage(res.body, res.statusCode));
+    }
+  }
+
   // ── Safe storage read — returns null instead of throwing on web crypto errors
   static Future<String?> _safeRead(String key) async {
     try {

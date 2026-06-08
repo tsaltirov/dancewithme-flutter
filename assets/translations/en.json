@@ -46,7 +46,21 @@
     "errorInvalidCode": "Invalid or expired code",
     "resetSuccess": "Password updated!",
     "resetSuccessDesc": "Your password has been changed successfully. You can now sign in.",
-    "goToLogin": "Go to Login"
+    "goToLogin": "Go to Login",
+    "register": "Register",
+    "noAccount": "Don't have an account?",
+    "haveAccount": "Already have an account?",
+    "registerTitle": "Create Account",
+    "registerSubtitle": "Start your dance journey today",
+    "firstName": "First name",
+    "lastName": "Last name",
+    "registerBtn": "Create Account",
+    "registerSuccess": "Account created! Welcome to DanceWithMe.",
+    "validationName": "First name is required",
+    "validationLastName": "Last name is required",
+    "addPhoto": "Add photo",
+    "changePhoto": "Change photo",
+    "photoHint": "Optional · Tap to add or take a photo"
   },
   "home": {
     "greetMorning": "Good morning,",
@@ -169,7 +183,12 @@
     "groupBadge": "Group",
     "beFirst": "Be the first",
     "enrolledFmt": "{count} enrolled",
-    "seatsFmt": "{count} seats"
+    "seatsFmt": "{count} seats",
+    "choreoSubtitle": "Create, edit and sync\nyour choreographies in real time",
+    "choreoLaunchBtn": "Go to Choreo Studio",
+    "choreoOpenWindow": "It will open in a new window",
+    "choreoLaunchError": "Could not open the URL",
+    "choreoNotConfigured": "Choreo Studio URL not configured"
   },
   "dialog": {
     "logout": {
@@ -396,6 +415,9 @@
     "confirmAssign": "Confirm assignment",
     "assignSuccess": "Costume assigned successfully",
     "assignError": "Error assigning costume",
+    "noStock": "No units available for this costume",
+    "duplicateName": "A costume with that name already exists",
+    "invalidStatus": "This operation is not allowed in the current costume status",
     "inactiveTooltip": "Costume is inactive — activate it to assign",
     "assignmentsSection": "ASSIGNMENTS",
     "tabEntregados": "Delivered",

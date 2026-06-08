@@ -46,7 +46,21 @@
     "errorInvalidCode": "Código incorrecto o expirado",
     "resetSuccess": "¡Contraseña actualizada!",
     "resetSuccessDesc": "Tu contraseña ha sido cambiada con éxito. Ya puedes iniciar sesión.",
-    "goToLogin": "Ir al inicio de sesión"
+    "goToLogin": "Ir al inicio de sesión",
+    "register": "Registrarse",
+    "noAccount": "¿No tienes cuenta?",
+    "haveAccount": "¿Ya tienes cuenta?",
+    "registerTitle": "Crear cuenta",
+    "registerSubtitle": "Empieza tu aventura en DanceWithMe",
+    "firstName": "Nombre",
+    "lastName": "Apellido",
+    "registerBtn": "Crear cuenta",
+    "registerSuccess": "¡Cuenta creada! Bienvenido a DanceWithMe.",
+    "validationName": "El nombre es obligatorio",
+    "validationLastName": "El apellido es obligatorio",
+    "addPhoto": "Añadir foto",
+    "changePhoto": "Cambiar foto",
+    "photoHint": "Opcional · Toca para añadir"
   },
   "home": {
     "greetMorning": "Buenos días,",
@@ -169,7 +183,12 @@
     "groupBadge": "Grupo",
     "beFirst": "Sé el primero",
     "enrolledFmt": "{count} inscritos",
-    "seatsFmt": "{count} plazas"
+    "seatsFmt": "{count} plazas",
+    "choreoSubtitle": "Crea, edita y sincroniza\ntus coreografías en tiempo real",
+    "choreoLaunchBtn": "Ir a Choreo Studio",
+    "choreoOpenWindow": "Se abrirá en una nueva ventana",
+    "choreoLaunchError": "No se pudo abrir la URL",
+    "choreoNotConfigured": "URL de Choreo Studio no configurada"
   },
   "dialog": {
     "logout": {
@@ -396,6 +415,9 @@
     "confirmAssign": "Confirmar asignación",
     "assignSuccess": "Traje asignado correctamente",
     "assignError": "Error al asignar el traje",
+    "noStock": "No hay unidades disponibles para este traje",
+    "duplicateName": "Ya existe un traje con ese nombre",
+    "invalidStatus": "Esta operación no está permitida con el estado actual del traje",
     "inactiveTooltip": "Traje inactivo — actívalo para asignar",
     "assignmentsSection": "ASIGNACIONES",
     "tabEntregados": "Entregados",

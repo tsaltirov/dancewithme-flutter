@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../services/auth_service.dart';
+import '../utils/app_toast.dart';
 import 'otp_reset_screen.dart';
 
 // ─── Palette (shared with login) ──────────────────────────────
@@ -56,21 +57,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
       setState(() => _sent = false);
     } on AuthException catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context)
-        ..clearSnackBars()
-        ..showSnackBar(SnackBar(
-          content: Row(children: [
-            const Icon(Icons.error_outline_rounded, color: Colors.white, size: 18),
-            const SizedBox(width: 10),
-            Expanded(child: Text(e.trKey.tr(),
-                style: GoogleFonts.outfit(fontSize: 14, color: Colors.white))),
-          ]),
-          backgroundColor: const Color(0xFFEF4444),
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-          margin: const EdgeInsets.fromLTRB(16, 0, 16, 24),
-          duration: const Duration(seconds: 4),
-        ));
+      AppToast.error(context, e.trKey.tr());
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -80,144 +67,152 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.white,
-      body: Stack(
-        children: [
-          _background(),
-          // Deco Circle 1 — top-left (same as login.pen)
-          Positioned(
-            left: -60, top: -40,
-            child: Opacity(
-              opacity: 0.6,
-              child: Container(
-                width: 200, height: 200,
-                decoration: const BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: Color(0x087C5CFC),
-                ),
-              ),
-            ),
-          ),
-          // Deco Circle 2 — bottom-right
-          Positioned(
-            left: 320, top: 720,
-            child: Opacity(
-              opacity: 0.5,
-              child: Container(
-                width: 150, height: 150,
-                decoration: const BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: Color(0x10D89575),
-                ),
-              ),
-            ),
-          ),
-          SafeArea(
+      body: LayoutBuilder(
+        builder: (context, constraints) {
+          if (constraints.maxWidth >= 600) {
+            return _buildWide(constraints);
+          }
+          return _buildNarrow();
+        },
+      ),
+    );
+  }
+
+  // ─── Wide layout (tablet / web) ───────────────────────────────
+  Widget _buildWide(BoxConstraints constraints) {
+    final panelW = (constraints.maxWidth * 0.45).clamp(280.0, 520.0);
+    return Row(
+      children: [
+        SizedBox(
+          width: panelW,
+          height: double.infinity,
+          child: _LeftPanel(),
+        ),
+        Expanded(
+          child: SafeArea(
             child: Center(
               child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 480),
-                child: Form(
-                  key: _formKey,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      // Back Row
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(32, 12, 32, 0),
-                        child: GestureDetector(
-                          onTap: () => Navigator.pop(context),
-                          behavior: HitTestBehavior.opaque,
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              const Icon(Icons.arrow_back_rounded,
-                                  color: _kDark, size: 24),
-                              const SizedBox(width: 8),
-                              Text(
-                                'auth.back'.tr(),
-                                style: GoogleFonts.outfit(
-                                  fontSize: 15,
-                                  fontWeight: FontWeight.w500,
-                                  color: _kDark,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-
-                      Expanded(
-                        child: SingleChildScrollView(
-                          padding: const EdgeInsets.symmetric(horizontal: 32),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
-                            children: [
-                              const SizedBox(height: 40),
-
-                              // Hero Section
-                              _heroSection(),
-
-                              const SizedBox(height: 32),
-
-                              // Email label + field
-                              _formSection(),
-
-                              const SizedBox(height: 24),
-
-                              // Send Reset Link button
-                              _sendButton(),
-
-                              const SizedBox(height: 20),
-
-                              // Help note
-                              if (!_sent)
-                                Text(
-                                  'auth.helpNote'.tr(),
-                                  textAlign: TextAlign.center,
-                                  style: GoogleFonts.outfit(
-                                    fontSize: 12,
-                                    color: _kHint,
-                                    height: 1.5,
-                                  ),
-                                ),
-
-                              const SizedBox(height: 40),
-                            ],
-                          ),
-                        ),
-                      ),
-
-                      // Bottom: Remember your password? Sign In
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(32, 0, 32, 24),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Text(
-                              'auth.rememberPassword'.tr(),
-                              style: GoogleFonts.outfit(
-                                fontSize: 13,
-                                color: _kMid,
-                              ),
-                            ),
-                            const SizedBox(width: 4),
-                            GestureDetector(
-                              onTap: () => Navigator.pop(context),
-                              child: Text(
-                                'auth.signIn'.tr(),
-                                style: GoogleFonts.outfit(
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w600,
-                                  color: _kPurple,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
+                constraints: const BoxConstraints(maxWidth: 400),
+                child: _formColumn(),
               ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  // ─── Narrow layout (mobile) ───────────────────────────────────
+  Widget _buildNarrow() {
+    return Stack(
+      children: [
+        _background(),
+        Positioned(
+          left: -60, top: -40,
+          child: Opacity(
+            opacity: 0.6,
+            child: Container(
+              width: 200, height: 200,
+              decoration: const BoxDecoration(
+                shape: BoxShape.circle,
+                color: Color(0x087C5CFC),
+              ),
+            ),
+          ),
+        ),
+        Positioned(
+          left: 320, top: 720,
+          child: Opacity(
+            opacity: 0.5,
+            child: Container(
+              width: 150, height: 150,
+              decoration: const BoxDecoration(
+                shape: BoxShape.circle,
+                color: Color(0x10D89575),
+              ),
+            ),
+          ),
+        ),
+        SafeArea(
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 480),
+              child: _formColumn(),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  // ─── Form column (shared by both layouts) ─────────────────────
+  Widget _formColumn() {
+    return Form(
+      key: _formKey,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(32, 12, 32, 0),
+            child: GestureDetector(
+              onTap: () => Navigator.pop(context),
+              behavior: HitTestBehavior.opaque,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.arrow_back_rounded, color: _kDark, size: 24),
+                  const SizedBox(width: 8),
+                  Text('auth.back'.tr(),
+                      style: GoogleFonts.outfit(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w500,
+                          color: _kDark)),
+                ],
+              ),
+            ),
+          ),
+          Expanded(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.symmetric(horizontal: 32),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  const SizedBox(height: 40),
+                  _heroSection(),
+                  const SizedBox(height: 32),
+                  _formSection(),
+                  const SizedBox(height: 24),
+                  _sendButton(),
+                  const SizedBox(height: 20),
+                  if (!_sent)
+                    Text(
+                      'auth.helpNote'.tr(),
+                      textAlign: TextAlign.center,
+                      style: GoogleFonts.outfit(
+                          fontSize: 12, color: _kHint, height: 1.5),
+                    ),
+                  const SizedBox(height: 40),
+                ],
+              ),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(32, 0, 32, 24),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text('auth.rememberPassword'.tr(),
+                    style: GoogleFonts.outfit(fontSize: 13, color: _kMid)),
+                const SizedBox(width: 4),
+                GestureDetector(
+                  onTap: () => Navigator.pop(context),
+                  child: Text('auth.signIn'.tr(),
+                      style: GoogleFonts.outfit(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: _kPurple)),
+                ),
+              ],
             ),
           ),
         ],
@@ -265,6 +260,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
 
         Text(
           'auth.forgotTitle'.tr(),
+          textAlign: TextAlign.center,
           style: GoogleFonts.outfit(
             fontSize: 26,
             fontWeight: FontWeight.w700,
@@ -413,4 +409,78 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
       ),
     );
   }
+}
+
+// ─── Left decorative panel (tablet / web) ────────────────────────────────────
+class _LeftPanel extends StatelessWidget {
+  const _LeftPanel();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [Color(0xFF4C23C8), Color(0xFF7C5CFC), Color(0xFF9B7EFD)],
+          stops: [0.0, 0.55, 1.0],
+        ),
+      ),
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          Positioned(top: -60, left: -60,
+              child: _Orb(size: 280, color: Colors.white.withValues(alpha: 0.06))),
+          Positioned(bottom: -40, right: -40,
+              child: _Orb(size: 220, color: Colors.white.withValues(alpha: 0.08))),
+          Padding(
+            padding: const EdgeInsets.all(40),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Container(
+                  width: 100, height: 100,
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.15),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(Icons.lock_reset_rounded,
+                      color: Colors.white, size: 48),
+                ),
+                const SizedBox(height: 32),
+                Text(
+                  'DanceWithMe',
+                  style: GoogleFonts.outfit(
+                      fontSize: 28,
+                      fontWeight: FontWeight.w800,
+                      color: Colors.white,
+                      letterSpacing: -0.5),
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  'auth.forgotDesc'.tr(),
+                  textAlign: TextAlign.center,
+                  style: GoogleFonts.outfit(
+                      fontSize: 14,
+                      color: Colors.white.withValues(alpha: 0.75),
+                      height: 1.6),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _Orb extends StatelessWidget {
+  final double size;
+  final Color  color;
+  const _Orb({required this.size, required this.color});
+  @override
+  Widget build(BuildContext context) => Container(
+        width: size, height: size,
+        decoration: BoxDecoration(shape: BoxShape.circle, color: color),
+      );
 }

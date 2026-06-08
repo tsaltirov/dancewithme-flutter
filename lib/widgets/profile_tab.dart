@@ -6,6 +6,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' hide AuthException, AuthUser;
 
 import '../services/auth_service.dart';
+import '../utils/app_toast.dart';
 
 // ─── Design tokens ────────────────────────────────────────────────────────────
 class _P {
@@ -175,19 +176,8 @@ class _ProfileTabState extends State<ProfileTab> {
     });
   }
 
-  void _snack(String msg, {bool error = false}) {
-    ScaffoldMessenger.of(context)
-      ..clearSnackBars()
-      ..showSnackBar(SnackBar(
-        content: Text(msg, style: _pt(14, FontWeight.w500, Colors.white)),
-        backgroundColor: error ? _P.errorRed : _P.purple,
-        behavior: SnackBarBehavior.floating,
-        shape:
-            RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        margin: const EdgeInsets.fromLTRB(16, 0, 16, 24),
-        duration: const Duration(seconds: 3),
-      ));
-  }
+  void _snack(String msg, {bool error = false}) =>
+      error ? AppToast.error(context, msg) : AppToast.success(context, msg);
 
   // ── Build ─────────────────────────────────────────────────────────────────
   // Mirrors home_screen._layoutFor: tab bar is present unless desktop/web AND w≥1100.

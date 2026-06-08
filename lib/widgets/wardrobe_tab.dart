@@ -7,6 +7,7 @@ import 'package:image_picker/image_picker.dart';
 import '../services/costume_service.dart';
 import '../services/event_service.dart';
 import '../services/school_service.dart';
+import '../utils/app_toast.dart';
 
 // ─── Design tokens (light lavender palette) ───────────────────────────────────
 class _W {
@@ -88,6 +89,26 @@ Widget _costumeImage({
       ),
     ...overlays,
   ]);
+}
+
+void _openImageViewer(BuildContext context, String imageUrl, String name) {
+  showGeneralDialog<void>(
+    context: context,
+    barrierDismissible: true,
+    barrierLabel: 'close',
+    barrierColor: const Color(0xE8000000),
+    transitionDuration: const Duration(milliseconds: 240),
+    transitionBuilder: (_, anim, __, child) => FadeTransition(
+      opacity: CurvedAnimation(parent: anim, curve: Curves.easeOut),
+      child: ScaleTransition(
+        scale: Tween<double>(begin: 0.88, end: 1.0).animate(
+            CurvedAnimation(parent: anim, curve: Curves.easeOutCubic)),
+        child: child,
+      ),
+    ),
+    pageBuilder: (_, __, ___) =>
+        _CostumeImageViewer(imageUrl: imageUrl, name: name),
+  );
 }
 
 // Whether this context is a desktop/web surface (for layout decisions)
@@ -200,10 +221,7 @@ class _WardrobeTabState extends State<WardrobeTab> {
     );
     if (ok == true) {
       _load();
-      if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(_snap('wardrobe.assignSuccess'.tr(), ok: true));
-      }
+      if (mounted) AppToast.success(context, 'wardrobe.assignSuccess'.tr());
     }
   }
 
@@ -221,11 +239,10 @@ class _WardrobeTabState extends State<WardrobeTab> {
         _pending.removeWhere((x) => x.id == a.id);
         _returned.insert(0, updated);
       });
-      ScaffoldMessenger.of(context)
-          .showSnackBar(_snap('wardrobe.returnSuccess'.tr(), ok: true));
+      AppToast.success(context, 'wardrobe.returnSuccess'.tr());
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(_snap(e.toString(), ok: false));
+      AppToast.error(context, e.toString());
     }
   }
 
@@ -237,8 +254,7 @@ class _WardrobeTabState extends State<WardrobeTab> {
     );
     if (result == true) {
       _load();
-      if (mounted) { ScaffoldMessenger.of(context)
-          .showSnackBar(_snap('wardrobe.createSuccess'.tr(), ok: true)); }
+      if (mounted) AppToast.success(context, 'wardrobe.createSuccess'.tr());
     }
   }
 
@@ -249,42 +265,26 @@ class _WardrobeTabState extends State<WardrobeTab> {
     );
     if (result == true) {
       _load();
-      if (mounted) { ScaffoldMessenger.of(context)
-          .showSnackBar(_snap('wardrobe.updateSuccess'.tr(), ok: true)); }
+      if (mounted) AppToast.success(context, 'wardrobe.updateSuccess'.tr());
     }
   }
 
   Future<void> _handleToggleActive(Costume c) async {
     try {
       if (c.active) {
-        // Active → Deactivate via soft-delete (sets active=false)
         await CostumeService.deleteCostume(c.id);
       } else {
-        // Inactive → Activate via dedicated endpoint
         await CostumeService.activateCostume(c.id);
       }
       if (!mounted) return;
       _load();
-      ScaffoldMessenger.of(context).showSnackBar(_snap(
-        c.active ? 'wardrobe.deactivateSuccess'.tr() : 'wardrobe.activateSuccess'.tr(),
-        ok: true,
-      ));
+      AppToast.success(context,
+        c.active ? 'wardrobe.deactivateSuccess'.tr() : 'wardrobe.activateSuccess'.tr());
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(_snap(e.toString(), ok: false));
+      AppToast.error(context, e.toString());
     }
   }
-
-  SnackBar _snap(String msg, {required bool ok}) => SnackBar(
-        content: Text(msg,
-            style: GoogleFonts.outfit(
-                fontSize: 13, fontWeight: FontWeight.w500, color: Colors.white)),
-        backgroundColor: ok ? _W.green : _W.red,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        margin: const EdgeInsets.fromLTRB(16, 0, 16, 24),
-        duration: const Duration(seconds: 3),
-      );
 
   // ── Build ────────────────────────────────────────────────────────────────────
   @override
@@ -634,30 +634,48 @@ class _CostumeGridCard extends StatelessWidget {
           // ── Image header (clip only here for rounded top corners) ───────
           ClipRRect(
             borderRadius: const BorderRadius.vertical(
-                top: Radius.circular(13)), // 14-1 accounts for the border
-            child: SizedBox(
-              height: 140,
-              child: _costumeImage(
-              costume: costume,
-              iconSize: 44,
-              overlays: [
-                Positioned(
-                  top: 8, left: 8,
-                  child: _StatusBadge(active: isActive, small: true),
-                ),
-                Positioned(
-                  top: 8, right: 8,
-                  child: _QtyBadge(
-                    assigned: assignedCount,
-                    total:    costume.quantity,
+                top: Radius.circular(13)),
+            child: GestureDetector(
+              onTap: costume.imageUrl?.isNotEmpty == true
+                  ? () => _openImageViewer(context, costume.imageUrl!, costume.name)
+                  : null,
+              child: SizedBox(
+                height: 140,
+                child: _costumeImage(
+                costume: costume,
+                iconSize: 44,
+                overlays: [
+                  Positioned(
+                    top: 8, left: 8,
+                    child: _StatusBadge(active: isActive, small: true),
                   ),
-                ),
-                // Inactive overlay
-                if (!isActive)
-                  Container(color: Colors.white.withValues(alpha: 0.35)),
-              ],
-            ),          // closes _costumeImage
-          ),            // closes SizedBox
+                  Positioned(
+                    top: 8, right: 8,
+                    child: _QtyBadge(
+                      assigned: assignedCount,
+                      total:    costume.quantity,
+                    ),
+                  ),
+                  if (!isActive)
+                    Container(color: Colors.white.withValues(alpha: 0.35)),
+                  // Zoom hint when image is available
+                  if (costume.imageUrl?.isNotEmpty == true)
+                    Positioned(
+                      bottom: 6, right: 6,
+                      child: Container(
+                        padding: const EdgeInsets.all(4),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withValues(alpha: 0.45),
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(Icons.zoom_in_rounded,
+                            color: Colors.white, size: 14),
+                      ),
+                    ),
+                ],
+              ),          // closes _costumeImage
+            ),            // closes SizedBox
+          ),              // closes GestureDetector
         ),              // closes ClipRRect
           // ── Body ────────────────────────────────────────────────────────
           Padding(
@@ -1084,7 +1102,6 @@ class _AssignSheetState extends State<_AssignSheet> {
   // Step 3
   final _obsCtrl = TextEditingController();
   bool   _assigning = false;
-  String? _error;
 
   @override
   void initState() {
@@ -1108,17 +1125,16 @@ class _AssignSheetState extends State<_AssignSheet> {
       });
     } catch (e) {
       if (!mounted) return;
-      setState(() { _error = e.toString(); _loadingEvents = false; });
+      setState(() => _loadingEvents = false);
     }
   }
 
   Future<void> _selectEvent(Event ev) async {
     setState(() {
-      _selectedEvent     = ev;
-      _participations    = null;
-      _selectedPart      = null;
-      _loadingParts      = true;
-      _error             = null;
+      _selectedEvent  = ev;
+      _participations = null;
+      _selectedPart   = null;
+      _loadingParts   = true;
     });
     try {
       final list = await EventService.getParticipations(ev.id);
@@ -1126,13 +1142,13 @@ class _AssignSheetState extends State<_AssignSheet> {
       setState(() { _participations = list; _loadingParts = false; });
     } catch (e) {
       if (!mounted) return;
-      setState(() { _error = e.toString(); _loadingParts = false; });
+      setState(() => _loadingParts = false);
     }
   }
 
   Future<void> _confirm() async {
     if (_selectedPart == null) return;
-    setState(() { _assigning = true; _error = null; });
+    setState(() => _assigning = true);
     try {
       await CostumeService.assignCostume(
         participationId: _selectedPart!.id,
@@ -1144,7 +1160,8 @@ class _AssignSheetState extends State<_AssignSheet> {
       Navigator.pop(context, true);
     } catch (e) {
       if (!mounted) return;
-      setState(() { _assigning = false; _error = e.toString(); });
+      setState(() => _assigning = false);
+      AppToast.error(context, e.toString());
     }
   }
 
@@ -1302,7 +1319,7 @@ class _AssignSheetState extends State<_AssignSheet> {
                       final hasCostume = p.costumeAssignmentId != null;
                       return GestureDetector(
                         onTap: hasCostume ? null : () =>
-                            setState(() { _selectedPart = p; _error = null; }),
+                            setState(() => _selectedPart = p),
                         child: AnimatedContainer(
                           duration: const Duration(milliseconds: 140),
                           margin: const EdgeInsets.only(bottom: 8),
@@ -1392,21 +1409,6 @@ class _AssignSheetState extends State<_AssignSheet> {
                   ),
                 ],
 
-                // ── Error ────────────────────────────────────────────
-                if (_error != null) ...[
-                  const SizedBox(height: 12),
-                  Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFFEF2F2),
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(
-                          color: _W.red.withValues(alpha: 0.3)),
-                    ),
-                    child: Text(_error!,
-                        style: _wt(12, FontWeight.w500, _W.red)),
-                  ),
-                ],
                 const SizedBox(height: 20),
               ],
             ),
@@ -1492,7 +1494,7 @@ class _SheetEmpty extends StatelessWidget {
   );
 }
 
-// ─── Quantity badge: "assigned / total" ──────────────────────────────────────
+// ─── Quantity badge: "available / total" ─────────────────────────────────────
 class _QtyBadge extends StatelessWidget {
   final int assigned;
   final int total;
@@ -1500,13 +1502,14 @@ class _QtyBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isFull    = total > 0 && assigned >= total;
-    final hasAny    = assigned > 0;
+    final available = (total - assigned).clamp(0, total);
+    final isFull    = available == 0 && total > 0;
+    final isPartial = available > 0 && assigned > 0;
     final badgeBg   = isFull
-        ? const Color(0xCCEF4444)   // red — all out
-        : hasAny
-            ? const Color(0xCCF59E0B) // amber — partially out
-            : Colors.black.withValues(alpha: 0.35); // neutral
+        ? const Color(0xCCEF4444)    // red — none available
+        : isPartial
+            ? const Color(0xCCF59E0B) // amber — some available
+            : Colors.black.withValues(alpha: 0.35); // neutral — all available
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
@@ -1518,7 +1521,7 @@ class _QtyBadge extends StatelessWidget {
         const Icon(Icons.layers_rounded, size: 10, color: Colors.white),
         const SizedBox(width: 3),
         Text(
-          hasAny ? '$assigned/$total' : '$total',
+          '$available/$total',
           style: _wt(11, FontWeight.w700, Colors.white),
         ),
       ]),
@@ -2270,5 +2273,116 @@ class _Field extends StatelessWidget {
       ),
     ],
   );
+}
+
+// ─── Full-screen image viewer ─────────────────────────────────────────────────
+class _CostumeImageViewer extends StatelessWidget {
+  final String imageUrl;
+  final String name;
+
+  const _CostumeImageViewer({required this.imageUrl, required this.name});
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: SafeArea(
+        child: Stack(
+          children: [
+            // Tap anywhere outside to close
+            Positioned.fill(
+              child: GestureDetector(
+                onTap: () => Navigator.pop(context),
+                behavior: HitTestBehavior.opaque,
+                child: const SizedBox.expand(),
+              ),
+            ),
+            // Pinch-zoomable image
+            Center(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 64, 16, 80),
+                child: InteractiveViewer(
+                  minScale: 0.8,
+                  maxScale: 4.0,
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(16),
+                    child: Image.network(
+                      imageUrl,
+                      fit: BoxFit.contain,
+                      loadingBuilder: (_, child, progress) => progress == null
+                          ? child
+                          : Container(
+                              width: 200, height: 200,
+                              alignment: Alignment.center,
+                              child: const CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  valueColor:
+                                      AlwaysStoppedAnimation(Colors.white)),
+                            ),
+                      errorBuilder: (_, __, ___) => Container(
+                        width: 200, height: 200,
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF1E1E2E),
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        child: const Icon(Icons.broken_image_rounded,
+                            color: Colors.white38, size: 48),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            // Costume name — bottom pill
+            Positioned(
+              left: 24, right: 24, bottom: 24,
+              child: Center(
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 20, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(100),
+                    border: Border.all(
+                        color: Colors.white.withValues(alpha: 0.20)),
+                  ),
+                  child: Text(
+                    name,
+                    style: GoogleFonts.plusJakartaSans(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.white,
+                      letterSpacing: 0.2,
+                    ),
+                    textAlign: TextAlign.center,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ),
+            ),
+            // Close button — top right
+            Positioned(
+              top: 12, right: 16,
+              child: GestureDetector(
+                onTap: () => Navigator.pop(context),
+                child: Container(
+                  width: 38, height: 38,
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.15),
+                    shape: BoxShape.circle,
+                    border: Border.all(
+                        color: Colors.white.withValues(alpha: 0.25)),
+                  ),
+                  child: const Icon(Icons.close_rounded,
+                      color: Colors.white, size: 20),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 

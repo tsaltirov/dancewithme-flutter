@@ -4,9 +4,11 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' hide AuthException;
 
 import '../services/auth_service.dart';
+import '../utils/app_toast.dart';
 import '../utils/validators.dart';
 import 'forgot_password_screen.dart';
 import 'home_screen.dart';
+import 'register_screen.dart';
 
 // ─── Palette ──────────────────────────────────────────────────
 const Color _kPurple   = Color(0xFF7C5CFC);
@@ -84,36 +86,7 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
-  void _showError(String trKey) {
-    ScaffoldMessenger.of(context)
-      ..clearSnackBars()
-      ..showSnackBar(
-        SnackBar(
-          content: Row(
-            children: [
-              const Icon(Icons.error_outline_rounded,
-                  color: Colors.white, size: 18),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Text(
-                  trKey.tr(),
-                  style: GoogleFonts.outfit(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w500,
-                      color: Colors.white),
-                ),
-              ),
-            ],
-          ),
-          backgroundColor: const Color(0xFFEF4444),
-          behavior: SnackBarBehavior.floating,
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-          margin: const EdgeInsets.fromLTRB(16, 0, 16, 24),
-          duration: const Duration(seconds: 4),
-        ),
-      );
-  }
+  void _showError(String trKey) => AppToast.error(context, trKey.tr());
 
   // ─── Build ────────────────────────────────────────────────────
   @override
@@ -179,6 +152,8 @@ class _LoginScreenState extends State<LoginScreen> {
                             _forgotRow(),
                             const SizedBox(height: 28),
                             _signInButton(),
+                            const SizedBox(height: 20),
+                            _registerRow(),
                             const SizedBox(height: 40),
                           ],
                         ),
@@ -240,6 +215,8 @@ class _LoginScreenState extends State<LoginScreen> {
                                 _forgotRow(),
                                 const SizedBox(height: 28),
                                 _signInButton(),
+                                const SizedBox(height: 20),
+                                _registerRow(),
                                 const SizedBox(height: 40),
                               ],
                             ),
@@ -548,6 +525,34 @@ class _LoginScreenState extends State<LoginScreen> {
           ),
         ),
       ),
+    );
+  }
+
+  // ─── Register row ─────────────────────────────────────────────
+  Widget _registerRow() {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Text(
+          'auth.noAccount'.tr(),
+          style: GoogleFonts.outfit(fontSize: 13, color: _kMid),
+        ),
+        const SizedBox(width: 4),
+        GestureDetector(
+          onTap: () => Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => const RegisterScreen()),
+          ),
+          child: Text(
+            'auth.register'.tr(),
+            style: GoogleFonts.outfit(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              color: _kPurple,
+            ),
+          ),
+        ),
+      ],
     );
   }
 

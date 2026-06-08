@@ -197,7 +197,7 @@ class CostumeService {
       debugPrint('[CostumeService] GET /api/v1/costumes?schoolId=$schoolId'
           '${active != null ? "&active=$active" : ""} → ${res.statusCode}');
     }
-    if (res.statusCode != 200) throw CostumeException(ApiError.trKey(res.body, res.statusCode));
+    if (res.statusCode != 200) throw CostumeException(ApiError.userMessage(res.body, res.statusCode));
 
     final body = jsonDecode(res.body) as Map<String, dynamic>;
     final data = body['data'] as List<dynamic>? ?? [];
@@ -231,7 +231,7 @@ class CostumeService {
 
     if (kDebugMode) debugPrint('[CostumeService] POST /api/v1/costumes → ${res.statusCode}');
     if (res.statusCode != 200 && res.statusCode != 201) {
-      throw CostumeException(ApiError.trKey(res.body, res.statusCode));
+      throw CostumeException(ApiError.userMessage(res.body, res.statusCode));
     }
     final body = jsonDecode(res.body) as Map<String, dynamic>;
     return Costume.fromJson(body['data'] as Map<String, dynamic>);
@@ -267,7 +267,7 @@ class CostumeService {
 
     if (kDebugMode) debugPrint('[CostumeService] PUT /api/v1/costumes/$id → ${res.statusCode}');
     if (res.statusCode != 200 && res.statusCode != 201) {
-      throw CostumeException(ApiError.trKey(res.body, res.statusCode));
+      throw CostumeException(ApiError.userMessage(res.body, res.statusCode));
     }
     final body = jsonDecode(res.body) as Map<String, dynamic>;
     return Costume.fromJson(body['data'] as Map<String, dynamic>);
@@ -285,7 +285,7 @@ class CostumeService {
 
     if (kDebugMode) debugPrint('[CostumeService] DELETE /api/v1/costumes/$id → ${res.statusCode}');
     if (res.statusCode != 200 && res.statusCode != 204) {
-      throw CostumeException(ApiError.trKey(res.body, res.statusCode));
+      throw CostumeException(ApiError.userMessage(res.body, res.statusCode));
     }
   }
 
@@ -301,7 +301,7 @@ class CostumeService {
 
     if (kDebugMode) debugPrint('[CostumeService] PATCH /api/v1/costumes/$id/activate → ${res.statusCode}');
     if (res.statusCode != 200 && res.statusCode != 201) {
-      throw CostumeException(ApiError.trKey(res.body, res.statusCode));
+      throw CostumeException(ApiError.userMessage(res.body, res.statusCode));
     }
     final body = jsonDecode(res.body) as Map<String, dynamic>;
     return Costume.fromJson(body['data'] as Map<String, dynamic>);
@@ -329,7 +329,7 @@ class CostumeService {
 
     if (kDebugMode) debugPrint('[CostumeService] POST /api/v1/costumes/assign → ${res.statusCode}');
     if (res.statusCode != 200 && res.statusCode != 201) {
-      throw CostumeException(ApiError.trKey(res.body, res.statusCode));
+      throw CostumeException(ApiError.userMessage(res.body, res.statusCode));
     }
     final body = jsonDecode(res.body) as Map<String, dynamic>;
     return CostumeAssignment.fromJson(body['data'] as Map<String, dynamic>);
@@ -347,7 +347,7 @@ class CostumeService {
         ));
 
     if (kDebugMode) debugPrint('[CostumeService] GET .../participation/$participationId → ${res.statusCode}');
-    if (res.statusCode != 200) throw CostumeException(ApiError.trKey(res.body, res.statusCode));
+    if (res.statusCode != 200) throw CostumeException(ApiError.userMessage(res.body, res.statusCode));
 
     final body = jsonDecode(res.body) as Map<String, dynamic>;
     final data = body['data'] as List<dynamic>? ?? [];
@@ -365,7 +365,7 @@ class CostumeService {
         ));
 
     if (kDebugMode) debugPrint('[CostumeService] GET /api/v1/costumes/assignments/pending → ${res.statusCode}');
-    if (res.statusCode != 200) throw CostumeException(ApiError.trKey(res.body, res.statusCode));
+    if (res.statusCode != 200) throw CostumeException(ApiError.userMessage(res.body, res.statusCode));
 
     final body = jsonDecode(res.body) as Map<String, dynamic>;
     final data = body['data'] as List<dynamic>? ?? [];
@@ -384,7 +384,7 @@ class CostumeService {
 
     if (kDebugMode) debugPrint('[CostumeService] PATCH .../assignments/$id/return → ${res.statusCode}');
     if (res.statusCode != 200 && res.statusCode != 204) {
-      throw CostumeException(ApiError.trKey(res.body, res.statusCode));
+      throw CostumeException(ApiError.userMessage(res.body, res.statusCode));
     }
     final body = jsonDecode(res.body) as Map<String, dynamic>;
     return CostumeAssignment.fromJson(body['data'] as Map<String, dynamic>);
